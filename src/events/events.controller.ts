@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -63,7 +64,7 @@ export class EventsController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiResponse({ status: 200, type: EventResponseDto })
   @ApiResponse({ status: 404, description: 'Event not found' })
-  findOne(@Param('id') id: string): Promise<EventResponseDto> {
+  findOne(@Param('id', ParseUUIDPipe) id: string): Promise<EventResponseDto> {
     return this.eventsService.findById(id);
   }
 
@@ -78,7 +79,7 @@ export class EventsController {
   @ApiResponse({ status: 403, description: 'Not the event creator' })
   @ApiResponse({ status: 404, description: 'Event not found' })
   update(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateEventDto,
     @CurrentUser() currentUser: AuthenticatedUser,
   ): Promise<EventResponseDto> {
@@ -96,7 +97,7 @@ export class EventsController {
   @ApiResponse({ status: 403, description: 'Not the event creator' })
   @ApiResponse({ status: 404, description: 'Event not found' })
   remove(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() currentUser: AuthenticatedUser,
   ): Promise<void> {
     return this.eventsService.delete(id, currentUser);

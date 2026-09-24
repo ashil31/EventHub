@@ -1,10 +1,12 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.type';
+import { PrismaService } from '../database/prisma.service';
 import {
   EventResponseDto,
   EventWithCreator,
@@ -14,7 +16,7 @@ import { CreateEventDto } from './dto/create-event.dto';
 import { ListEventsDto } from './dto/list-events.dto';
 import { PaginatedEventsResponseDto } from './dto/paginated-events-response.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
-import { EventsRepository } from './events.repository';
+import { EventsRepository, UpdateEventData } from './events.repository';
 
 // Absorbs minor clock skew/request latency between client and server
 // without meaningfully allowing "past" events to be created (Phase 4 §8).
@@ -22,7 +24,10 @@ const PAST_EVENT_GRACE_MS = 60_000;
 
 @Injectable()
 export class EventsService {
-  constructor(private readonly eventsRepository: EventsRepository) {}
+  constructor(
+    private readonly eventsRepository: EventsRepository,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async create(
     dto: CreateEventDto,
@@ -103,19 +108,45 @@ export class EventsService {
       this.validateNotInPast(startsAt);
     }
 
-    // Capacity reduction below the current attendee count would be an
-    // invalid state once RSVP exists — not enforced yet because there is
-    // no RSVP write path in this phase to make that check meaningful.
-    // Phase 5 should add a check here (attendee count via
-    // EventAttendee.count) before applying a capacity decrease.
-
-    const updated = await this.eventsRepository.update(id, {
+    const updateData: UpdateEventData = {
       title: dto.title,
       description: dto.description,
       location: dto.location,
       startsAt: dto.startsAt ? startsAt : undefined,
       endsAt: dto.endsAt ? endsAt : undefined,
       capacity: dto.capacity,
+    };
+
+    // Only capacity changes race against RSVP (Phase 5 §28/§29) — other
+    // field edits don't touch the attendees<=capacity invariant, so they
+    // don't need the lock. Locking unconditionally would serialize every
+    // event edit against every RSVP for no reason ("do not blindly add
+    // locks everywhere", §29).
+    if (dto.capacity === undefined) {
+      const updated = await this.eventsRepository.update(id, updateData);
+      return toEventResponse(updated);
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // Locks the SAME event row RsvpService.join locks — this is what
+      // actually prevents the race in §29's example (capacity reduced to
+      // 50 while a 100th attendee is concurrently joining): whichever
+      // transaction acquires the lock first completes its full
+      // check-then-write atomically, and the second one re-reads
+      // up-to-date state once it acquires the lock in turn.
+      const locked = await this.eventsRepository.findByIdForUpdate(tx, id);
+      if (!locked) {
+        throw new NotFoundException('Event not found');
+      }
+
+      const attendeeCount = await this.eventsRepository.countAttendees(id, tx);
+      if (dto.capacity! < attendeeCount) {
+        throw new ConflictException(
+          `Capacity cannot be reduced below the current attendee count (${attendeeCount}).`,
+        );
+      }
+
+      return this.eventsRepository.update(id, updateData, tx);
     });
 
     return toEventResponse(updated);

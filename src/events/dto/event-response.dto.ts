@@ -30,6 +30,15 @@ export class EventResponseDto {
   @ApiProperty({ example: 100 })
   capacity: number;
 
+  @ApiProperty({
+    example: 74,
+    description: 'Derived from EventAttendee — never a cached/stale value.',
+  })
+  attendeeCount: number;
+
+  @ApiProperty({ example: 26 })
+  availableSpots: number;
+
   @ApiProperty({ type: UserSummaryDto })
   createdBy: UserSummaryDto;
 
@@ -42,6 +51,7 @@ export class EventResponseDto {
 
 export type EventWithCreator = Event & {
   creator: Pick<User, 'id' | 'name' | 'email'>;
+  _count: { attendees: number };
 };
 
 export function toEventResponse(event: EventWithCreator): EventResponseDto {
@@ -53,6 +63,8 @@ export function toEventResponse(event: EventWithCreator): EventResponseDto {
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     capacity: event.capacity,
+    attendeeCount: event._count.attendees,
+    availableSpots: event.capacity - event._count.attendees,
     createdBy: {
       id: event.creator.id,
       name: event.creator.name,

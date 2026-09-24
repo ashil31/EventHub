@@ -19,12 +19,13 @@ See [`docs/specs/`](docs/specs) for the full architecture, database design, API 
 
 ## Current Status
 
-**Phase 4 complete.** Application foundation (Phase 1) + database layer (Phase 2) + authentication (Phase 3) + Events CRUD:
+**Phase 5 complete.** Application foundation (Phase 1) + database layer (Phase 2) + authentication (Phase 3) + Events CRUD (Phase 4) + RSVP with concurrency-safe capacity enforcement (Phase 5):
 
 - PostgreSQL + Prisma, schema for `User`/`Event`/`EventAttendee`, an applied initial migration, a `PrismaService`/`PrismaModule` database boundary, database-backed health check, and a database integration test suite run against a real Postgres instance.
 - Registration, login, JWT issuance/validation, a protected `GET /auth/me`, and Swagger docs with bearer-token auth wired in.
 - Full Events CRUD (create/list/get/update/delete), creator-only update/delete authorization, pagination, search, and date filtering.
-- **No RSVP or attendee endpoints exist yet.** The `EventAttendee` schema (Phase 2) and the Events ownership pattern (Phase 4) are ready for it.
+- Join/cancel RSVP and a paginated attendee list, with capacity enforcement and duplicate-RSVP prevention that are correct under real concurrent load — verified with genuinely concurrent requests against real Postgres, not just sequential tests.
+- This is the complete backend feature set the assignment specifies. Remaining phases are hardening (rate limiting, production polish), not new features.
 
 ## Local Setup
 
@@ -135,6 +136,43 @@ JWT bearer authentication, built on `@nestjs/passport` + `passport-jwt`.
 
 Full design rationale (ownership, pagination trade-offs, search strategy, index review): [`docs/specs/phase-4-events.md`](docs/specs/phase-4-events.md).
 
+**Capacity vs. attendees (Phase 5):** an event's `capacity` cannot be reduced below its current attendee count (`409` if attempted). Reducing capacity while a concurrent RSVP is in flight for the same event is race-free — both operations lock the same event row (see Concurrency below), so whichever commits first is seen by the other before it makes its own decision. `EventResponseDto` now also reports `attendeeCount`/`availableSpots`, computed via Prisma's relation-count (`_count`) in the same query as the event itself — no N+1, even when listing many events at once.
+
+## RSVP
+
+- **Join** — `POST /events/:id/rsvp`. No request body — the attendee is always the authenticated JWT user; there is no `userId` field to send, so there's nothing to spoof. Returns `201` with `{ message, eventId, userId, joinedAt, attendeeCount, capacity, availableSpots }`.
+- **Cancel** — `DELETE /events/:id/rsvp`. `204` on success. `404` (not `409`) if you weren't attending — chosen as the single consistent "the thing you're targeting doesn't apply to you" response, matching how a missing event is also `404`.
+- **View attendees** — `GET /events/:id/attendees` (requires auth). Paginated (`?page=1&limit=20`, same convention as Events), ordered by `joinedAt` ascending (earliest RSVP first), each entry `{ user: { id, name, email }, joinedAt }` — never `passwordHash`.
+- **Duplicate RSVP:** `409` with `"You have already RSVP'd to this event."` — checked at the application level and enforced underneath by the database's own `UNIQUE(eventId, userId)` constraint, which is the actual final authority under concurrency (see below).
+- **Full event:** `409` with `"Event is full."` — the attendee count checked is read inside the same locked transaction as the insert, so this can't be raced (see below).
+- **Past events:** RSVP is rejected with `409` once `startsAt` has passed — `"RSVP is closed because the event has already started."`
+
+## Concurrency
+
+This is the correctness-critical part of the whole project: RSVP capacity must never be exceeded, and a user must never RSVP twice, **even under many simultaneous requests for the same event**.
+
+**The mechanism — a PostgreSQL transaction with a row lock:**
+
+```
+BEGIN
+  SELECT * FROM events WHERE id = $1 FOR UPDATE   -- locks the event row
+  check: has this user already RSVP'd?             -- app-level duplicate check
+  count attendees for this event
+  if count >= capacity: ROLLBACK, return 409
+  INSERT INTO event_attendees (...)
+COMMIT
+```
+
+`SELECT ... FOR UPDATE` locks the event row for the duration of the transaction. A second, concurrent RSVP request for the *same event* blocks at that same line until the first transaction commits or rolls back — it cannot proceed to its own count/capacity check on stale data. This is what actually prevents the classic race (two requests both read "99 of 100 taken," both insert, capacity is silently exceeded to 101): under the lock, the second request's count query only runs *after* the first has already committed its insert, so it sees the true, up-to-date count.
+
+- **Why PostgreSQL row locking, not an application-level lock:** a `Map<eventId, Mutex>` or similar in-process lock only works if the app runs as a single instance — it provides zero protection the moment there's more than one process/container, which is a completely realistic near-term deployment shape. The database is the only component every instance of the app necessarily shares, so it's the only place a correctness guarantee can actually live.
+- **Why not Redis:** a distributed lock would solve the same multi-instance problem, but at the cost of a second system that itself needs to be correct, available, and kept in sync with the database — for a guarantee Postgres already provides natively via row locking. Not justified at this project's scale (or arguably any scale, given Postgres already does this correctly).
+- **Duplicate-RSVP protection has two layers:** the application checks for an existing RSVP inside the locked transaction (the normal path), and the database's `UNIQUE(eventId, userId)` constraint (Phase 2) is the backstop — if a `P2002` unique-violation ever reached the insert anyway, it's caught and translated into the same friendly `409`, never a raw database error.
+- **Raw SQL:** the row lock (`SELECT ... FOR UPDATE`) is the *only* raw SQL in the codebase — Prisma's high-level query API has no way to express PostgreSQL locking. It lives in exactly one place (`EventsRepository.findByIdForUpdate`), uses Prisma's parameterized `$queryRaw` tagged template (never string concatenation), and is documented inline.
+- **Verified, not assumed:** `test/rsvp.e2e-spec.ts` fires genuinely concurrent requests (`Promise.all`, not sequential `await`s) against the real running app and real Postgres — capacity=1 with 20 concurrent users (exactly 1 succeeds), capacity=10 with 50 concurrent users (exactly 10 succeed), one user firing 15 concurrent duplicate RSVPs (exactly 1 succeeds), two users racing for the last spot on a capacity=1 event (exactly 1 total attendee, ever), and a capacity-reduction racing a concurrent RSVP (the `attendees <= capacity` invariant always holds, regardless of which request wins). All deterministic across repeated runs.
+
+Full design writeup, including the isolation-level reasoning and every concurrency scenario worked through: [`docs/specs/phase-5-rsvp.md`](docs/specs/phase-5-rsvp.md).
+
 ## API
 
 Currently implemented:
@@ -148,8 +186,11 @@ Currently implemented:
 | POST | `/api/v1/events` | Bearer JWT | Create an event. `201` + `EventResponseDto`, or `400`. |
 | GET | `/api/v1/events` | Public | Paginated, searchable, filterable list. `200`. |
 | GET | `/api/v1/events/:id` | Public | `200` + `EventResponseDto`, or `404`. |
-| PATCH | `/api/v1/events/:id` | Bearer JWT, creator only | Partial update. `200`, `403` (not creator), or `404`. |
+| PATCH | `/api/v1/events/:id` | Bearer JWT, creator only | Partial update. `200`, `403` (not creator), `404`, or `409` (capacity below attendee count). |
 | DELETE | `/api/v1/events/:id` | Bearer JWT, creator only | `204`, `403` (not creator), or `404`. |
+| POST | `/api/v1/events/:id/rsvp` | Bearer JWT | Join an event. `201`, `404`, or `409` (duplicate, full, or already started). |
+| DELETE | `/api/v1/events/:id/rsvp` | Bearer JWT | Cancel your RSVP. `204`, or `404` (event missing, or not attending). |
+| GET | `/api/v1/events/:id/attendees` | Bearer JWT | Paginated attendee list. `200`, or `404`. |
 
 Interactive API docs: **`http://localhost:3000/api/docs`** (Swagger UI) — click "Authorize" and paste `Bearer <token>` from `/auth/login` to try any protected endpoint directly in the browser.
 
@@ -188,7 +229,7 @@ npm run format:check     # prettier --check
 
 npm test                # unit tests (no database required)
 npm run test:watch      # unit tests, watch mode
-npm run test:e2e        # end-to-end tests: auth flow + full Events CRUD/authorization (requires Postgres running)
+npm run test:e2e        # end-to-end tests: auth, Events CRUD/authorization, RSVP + concurrency (requires Postgres running)
 npm run test:db         # database integration tests against a real Postgres instance
 npm run test:cov        # unit tests with coverage
 ```
@@ -205,13 +246,13 @@ Full write-ups live in [`docs/specs/`](docs/specs), updated at the end of each p
 - [`docs/specs/phase-2-database.md`](docs/specs/phase-2-database.md) — what Phase 2 built and why, ADRs 007–010
 - [`docs/specs/phase-3-authentication.md`](docs/specs/phase-3-authentication.md) — what Phase 3 built and why, ADRs 011–013
 - [`docs/specs/phase-4-events.md`](docs/specs/phase-4-events.md) — what Phase 4 built and why, ADRs 014–017
+- [`docs/specs/phase-5-rsvp.md`](docs/specs/phase-5-rsvp.md) — what Phase 5 built and why, ADRs 018–020
 
-## Known Limitations (Phase 4)
+## Known Limitations (Phase 5)
 
-- No RSVP or attendee endpoints yet — the `EventAttendee` schema (Phase 2) and ownership pattern (Phase 4) are ready for them.
-- Event capacity can currently be reduced to any positive value regardless of attendee count — harmless today (nothing writes attendees yet), but Phase 5 must add a check before allowing a capacity decrease once RSVP exists.
-- Search is a plain case-insensitive `contains` query (no index) — fine at this project's scale; a `pg_trgm` GIN index is the natural next step if search ever becomes a real bottleneck, deliberately not added now.
+- No rate limiting yet on `/auth/login` / `/auth/register` / RSVP endpoints — flagged as a specific future hardening item (Phase 3, reaffirmed here).
 - No refresh tokens, session revocation, or OAuth/social login — out of scope for this assignment (ADR-004). A deleted user's token stops working immediately (the JWT strategy re-checks the database every request), but there's no way to revoke a *still-valid* user's token before it expires.
-- No rate limiting yet on `/auth/login` / `/auth/register` — flagged as a specific future hardening item in `docs/specs/phase-3-authentication.md`.
+- Search is a plain case-insensitive `contains` query (no index) — fine at this project's scale; a `pg_trgm` GIN index is the natural next step if search ever becomes a real bottleneck, deliberately not added now.
+- Attendee email is currently visible to any authenticated user who views an event's attendee list (not just the event creator) — a deliberate, documented choice for this assignment's scope (`docs/specs/phase-5-rsvp.md`); a real product would likely want to restrict this further.
 - `npm run test:e2e` and `npm run test:db` require a running local Postgres (`docker compose up -d`); they are not hermetic like `npm test`.
 - No application Dockerfile yet (Postgres has one via docker-compose; the app's own Dockerfile is deferred — see `docs/specs/phase-1-foundation.md`).

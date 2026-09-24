@@ -3,10 +3,12 @@
    not real method references */
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.type';
+import { PrismaService } from '../database/prisma.service';
 import { EventWithCreator } from './dto/event-response.dto';
 import { EventsRepository } from './events.repository';
 import { EventsService } from './events.service';
@@ -27,6 +29,7 @@ function buildEvent(
     createdAt: now,
     updatedAt: now,
     creator: { id: 'user-1', name: 'Owner', email: 'owner@example.com' },
+    _count: { attendees: 0 },
     ...overrides,
   };
 }
@@ -51,11 +54,21 @@ describe('EventsService', () => {
     count: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
+    findByIdForUpdate: jest.fn(),
+    countAttendees: jest.fn(),
   } as unknown as jest.Mocked<EventsRepository>;
+  // $transaction just invokes the callback with a placeholder tx — every
+  // repository call inside it is mocked anyway, so the fake tx is never
+  // actually used for a real query.
+  const prisma = {
+    $transaction: jest.fn((callback: (tx: unknown) => unknown) => callback({})),
+  } as unknown as jest.Mocked<PrismaService>;
 
   beforeEach(() => {
+    // clearAllMocks resets call history but not the $transaction
+    // implementation set above, which is what we want it to keep.
     jest.clearAllMocks();
-    service = new EventsService(repo);
+    service = new EventsService(repo, prisma);
   });
 
   describe('create', () => {
@@ -207,19 +220,25 @@ describe('EventsService', () => {
   });
 
   describe('update', () => {
-    it('allows the creator to update', async () => {
+    it('allows the creator to update a non-capacity field without a transaction', async () => {
       repo.findById.mockResolvedValue(buildEvent());
-      repo.update.mockResolvedValue(buildEvent({ capacity: 200 }));
+      repo.update.mockResolvedValue(buildEvent({ title: 'New title' }));
 
-      const result = await service.update('event-1', { capacity: 200 }, owner);
-      expect(result.capacity).toBe(200);
+      const result = await service.update(
+        'event-1',
+        { title: 'New title' },
+        owner,
+      );
+
+      expect(result.title).toBe('New title');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     it('rejects a non-owner with 403', async () => {
       repo.findById.mockResolvedValue(buildEvent());
 
       await expect(
-        service.update('event-1', { capacity: 200 }, otherUser),
+        service.update('event-1', { title: 'x' }, otherUser),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(repo.update).not.toHaveBeenCalled();
     });
@@ -227,7 +246,7 @@ describe('EventsService', () => {
     it('throws 404 for a nonexistent event before checking ownership', async () => {
       repo.findById.mockResolvedValue(null);
       await expect(
-        service.update('missing', { capacity: 200 }, owner),
+        service.update('missing', { title: 'x' }, owner),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
@@ -254,6 +273,61 @@ describe('EventsService', () => {
         Record<string, unknown>,
       ];
       expect(updateData).not.toHaveProperty('createdBy');
+    });
+
+    describe('capacity changes (locked transaction)', () => {
+      it('locks the event row and allows a capacity increase', async () => {
+        repo.findById.mockResolvedValue(buildEvent());
+        repo.findByIdForUpdate.mockResolvedValue({
+          id: 'event-1',
+          capacity: 100,
+          startsAt: new Date(Date.now() + 24 * 3_600_000),
+          createdBy: 'user-1',
+        });
+        repo.countAttendees.mockResolvedValue(80);
+        repo.update.mockResolvedValue(buildEvent({ capacity: 200 }));
+
+        const result = await service.update(
+          'event-1',
+          { capacity: 200 },
+          owner,
+        );
+
+        expect(result.capacity).toBe(200);
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      });
+
+      it('rejects reducing capacity below the current attendee count', async () => {
+        repo.findById.mockResolvedValue(buildEvent({ capacity: 100 }));
+        repo.findByIdForUpdate.mockResolvedValue({
+          id: 'event-1',
+          capacity: 100,
+          startsAt: new Date(Date.now() + 24 * 3_600_000),
+          createdBy: 'user-1',
+        });
+        repo.countAttendees.mockResolvedValue(80);
+
+        await expect(
+          service.update('event-1', { capacity: 50 }, owner),
+        ).rejects.toBeInstanceOf(ConflictException);
+        expect(repo.update).not.toHaveBeenCalled();
+      });
+
+      it('allows reducing capacity to exactly the current attendee count', async () => {
+        repo.findById.mockResolvedValue(buildEvent({ capacity: 100 }));
+        repo.findByIdForUpdate.mockResolvedValue({
+          id: 'event-1',
+          capacity: 100,
+          startsAt: new Date(Date.now() + 24 * 3_600_000),
+          createdBy: 'user-1',
+        });
+        repo.countAttendees.mockResolvedValue(80);
+        repo.update.mockResolvedValue(buildEvent({ capacity: 80 }));
+
+        await expect(
+          service.update('event-1', { capacity: 80 }, owner),
+        ).resolves.toBeDefined();
+      });
     });
   });
 
