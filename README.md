@@ -19,11 +19,12 @@ See [`docs/specs/`](docs/specs) for the full architecture, database design, API 
 
 ## Current Status
 
-**Phase 3 complete.** Application foundation (Phase 1) + database layer (Phase 2) + authentication:
+**Phase 4 complete.** Application foundation (Phase 1) + database layer (Phase 2) + authentication (Phase 3) + Events CRUD:
 
 - PostgreSQL + Prisma, schema for `User`/`Event`/`EventAttendee`, an applied initial migration, a `PrismaService`/`PrismaModule` database boundary, database-backed health check, and a database integration test suite run against a real Postgres instance.
 - Registration, login, JWT issuance/validation, a protected `GET /auth/me`, and Swagger docs with bearer-token auth wired in.
-- **No events or RSVP endpoints exist yet.** The database schema and authorization foundation (`@CurrentUser()`, `AuthenticatedUser`) are ready for them.
+- Full Events CRUD (create/list/get/update/delete), creator-only update/delete authorization, pagination, search, and date filtering.
+- **No RSVP or attendee endpoints exist yet.** The `EventAttendee` schema (Phase 2) and the Events ownership pattern (Phase 4) are ready for it.
 
 ## Local Setup
 
@@ -119,7 +120,20 @@ JWT bearer authentication, built on `@nestjs/passport` + `passport-jwt`.
 
 **Password hashing:** Argon2id, OWASP's 2023-recommended minimum configuration (19 MiB memory, 2 iterations, 1 degree of parallelism) — sized for a web request, not maximized.
 
-**Authorization foundation for later phases:** any protected route can use `@CurrentUser() user: AuthenticatedUser` to get `{ id, name, email }` without touching `request.user` or knowing anything about JWTs — the future Events module's ownership checks (`event.createdBy === currentUser.id`) will use exactly this.
+**Authorization foundation for later phases:** any protected route can use `@CurrentUser() user: AuthenticatedUser` to get `{ id, name, email }` without touching `request.user` or knowing anything about JWTs — Events' ownership checks (below) use exactly this.
+
+## Events API
+
+- **Public:** `GET /events`, `GET /events/:id` — no token required, browsable by anyone.
+- **Authenticated:** `POST /events`, `PATCH /events/:id`, `DELETE /events/:id` — require a bearer token.
+- **Ownership:** the event **creator** is the owner. `createdBy` is *always* derived from the authenticated JWT user server-side — `CreateEventDto` has no `createdBy` field at all, and the global `ValidationPipe`'s `forbidNonWhitelisted: true` (Phase 1) rejects outright any request that tries to send one, rather than silently ignoring it. Only the creator may `PATCH`/`DELETE` their event; anyone else gets `403 Forbidden` (not `404` — the event is already publicly readable via `GET`, so there's nothing to conceal by hiding its existence).
+- **Pagination:** `?page=1&limit=20` (defaults shown; `limit` capped at 100), offset-based (Prisma `skip`/`take`), response shaped as `{ data: [...], meta: { page, limit, total, totalPages } }`.
+- **Search:** `?search=backend` matches (case-insensitive) against `title`, `description`, and `location` via Prisma's parameterized `contains` — never raw SQL.
+- **Date filtering:** `?from=...&to=...` (ISO-8601). **The default listing shows upcoming events only** — `from` defaults to "now" when not supplied, which is the entire mechanism behind that default; pass an explicit past `from` to browse past events.
+- **Validation:** `title`/`location` required, `capacity` must be a positive integer, `startsAt`/`endsAt` must be valid ISO-8601 with `startsAt < endsAt` (checked against the *final* resulting state on a partial `PATCH`, not just the field that changed), and `startsAt` may not be in the past (small grace window for clock skew — see `docs/specs/phase-4-events.md`).
+- **Response shape:** `EventResponseDto`, with a nested safe `createdBy: { id, name, email }` — never the raw Prisma row, never `passwordHash`.
+
+Full design rationale (ownership, pagination trade-offs, search strategy, index review): [`docs/specs/phase-4-events.md`](docs/specs/phase-4-events.md).
 
 ## API
 
@@ -131,8 +145,13 @@ Currently implemented:
 | POST | `/api/v1/auth/register` | Public | Create an account. `201` + safe user, `409` on duplicate email. |
 | POST | `/api/v1/auth/login` | Public | `200` + `{ accessToken, tokenType, expiresIn, user }`, or `401`. |
 | GET | `/api/v1/auth/me` | Bearer JWT | `200` + `{ id, name, email }`, or `401`. |
+| POST | `/api/v1/events` | Bearer JWT | Create an event. `201` + `EventResponseDto`, or `400`. |
+| GET | `/api/v1/events` | Public | Paginated, searchable, filterable list. `200`. |
+| GET | `/api/v1/events/:id` | Public | `200` + `EventResponseDto`, or `404`. |
+| PATCH | `/api/v1/events/:id` | Bearer JWT, creator only | Partial update. `200`, `403` (not creator), or `404`. |
+| DELETE | `/api/v1/events/:id` | Bearer JWT, creator only | `204`, `403` (not creator), or `404`. |
 
-Interactive API docs: **`http://localhost:3000/api/docs`** (Swagger UI) — click "Authorize" and paste `Bearer <token>` from `/auth/login` to try `/auth/me` directly in the browser.
+Interactive API docs: **`http://localhost:3000/api/docs`** (Swagger UI) — click "Authorize" and paste `Bearer <token>` from `/auth/login` to try any protected endpoint directly in the browser.
 
 Global conventions already in place for future endpoints:
 - Base path `/api/v1` (URI versioning, default version `1`)
@@ -169,7 +188,7 @@ npm run format:check     # prettier --check
 
 npm test                # unit tests (no database required)
 npm run test:watch      # unit tests, watch mode
-npm run test:e2e        # end-to-end tests, including the full auth flow (requires Postgres running)
+npm run test:e2e        # end-to-end tests: auth flow + full Events CRUD/authorization (requires Postgres running)
 npm run test:db         # database integration tests against a real Postgres instance
 npm run test:cov        # unit tests with coverage
 ```
@@ -185,10 +204,13 @@ Full write-ups live in [`docs/specs/`](docs/specs), updated at the end of each p
 - [`docs/specs/phase-1-foundation.md`](docs/specs/phase-1-foundation.md) — what Phase 1 built and why
 - [`docs/specs/phase-2-database.md`](docs/specs/phase-2-database.md) — what Phase 2 built and why, ADRs 007–010
 - [`docs/specs/phase-3-authentication.md`](docs/specs/phase-3-authentication.md) — what Phase 3 built and why, ADRs 011–013
+- [`docs/specs/phase-4-events.md`](docs/specs/phase-4-events.md) — what Phase 4 built and why, ADRs 014–017
 
-## Known Limitations (Phase 3)
+## Known Limitations (Phase 4)
 
-- No events or RSVP endpoints yet — the authorization foundation (`@CurrentUser()`, `AuthenticatedUser`) is ready for them.
+- No RSVP or attendee endpoints yet — the `EventAttendee` schema (Phase 2) and ownership pattern (Phase 4) are ready for them.
+- Event capacity can currently be reduced to any positive value regardless of attendee count — harmless today (nothing writes attendees yet), but Phase 5 must add a check before allowing a capacity decrease once RSVP exists.
+- Search is a plain case-insensitive `contains` query (no index) — fine at this project's scale; a `pg_trgm` GIN index is the natural next step if search ever becomes a real bottleneck, deliberately not added now.
 - No refresh tokens, session revocation, or OAuth/social login — out of scope for this assignment (ADR-004). A deleted user's token stops working immediately (the JWT strategy re-checks the database every request), but there's no way to revoke a *still-valid* user's token before it expires.
 - No rate limiting yet on `/auth/login` / `/auth/register` — flagged as a specific future hardening item in `docs/specs/phase-3-authentication.md`.
 - `npm run test:e2e` and `npm run test:db` require a running local Postgres (`docker compose up -d`); they are not hermetic like `npm test`.
