@@ -11,18 +11,19 @@ See [`docs/specs/`](docs/specs) for the full architecture, database design, API 
 - **Framework:** NestJS 11 (TypeScript, strict mode)
 - **Database:** PostgreSQL 16
 - **ORM:** Prisma 7 (`@prisma/client` + `@prisma/adapter-pg`)
-- **Auth:** JWT + Argon2 (later phase)
-- **Docs:** Swagger / OpenAPI (later phase)
+- **Auth:** JWT (`@nestjs/jwt` + `@nestjs/passport` + `passport-jwt`) + Argon2id password hashing
+- **Docs:** Swagger / OpenAPI at `/api/docs`
 - **Testing:** Jest, Supertest
 - **Logging:** Pino (structured JSON logs, request correlation IDs)
 - **Containerization:** Docker Compose (local Postgres only, so far)
 
 ## Current Status
 
-**Phase 2 complete.** Application foundation (Phase 1) plus the database layer:
+**Phase 3 complete.** Application foundation (Phase 1) + database layer (Phase 2) + authentication:
 
 - PostgreSQL + Prisma, schema for `User`/`Event`/`EventAttendee`, an applied initial migration, a `PrismaService`/`PrismaModule` database boundary, database-backed health check, and a database integration test suite run against a real Postgres instance.
-- **No authentication, events, or RSVP endpoints exist yet.** The schema and database boundary are ready for them.
+- Registration, login, JWT issuance/validation, a protected `GET /auth/me`, and Swagger docs with bearer-token auth wired in.
+- **No events or RSVP endpoints exist yet.** The database schema and authorization foundation (`@CurrentUser()`, `AuthenticatedUser`) are ready for them.
 
 ## Local Setup
 
@@ -47,7 +48,7 @@ See [`.env.example`](.env.example). All variables below are validated at startup
 | `PORT` | yes | 1–65535 |
 | `DATABASE_URL` | yes | `postgresql://...` — now used by Prisma/PrismaService |
 | `JWT_SECRET` | yes | ≥32 characters. In production, must not be the `.env.example` placeholder |
-| `JWT_EXPIRES_IN` | yes | e.g. `15m` — not used until auth is implemented |
+| `JWT_EXPIRES_IN` | yes | e.g. `15m` — signs and verifies access tokens |
 | `FRONTEND_URL` | no | Origin allowed by CORS. If unset in production, CORS denies all cross-origin requests |
 
 ## Database
@@ -98,13 +99,40 @@ Three tables: `users`, `events`, `event_attendees`. Full relationship diagram an
 - Foreign keys: `events.createdBy → users.id` (`RESTRICT`), `event_attendees.eventId → events.id` (`CASCADE`), `event_attendees.userId → users.id` (`CASCADE`) — reasoning for each in [`docs/specs/phase-2-database.md`](docs/specs/phase-2-database.md)
 - Indexes: `events.createdBy`, `events.startsAt`, `event_attendees.userId` (plus the unique indexes above) — each tied to a specific query pattern, documented in the same file
 
+## Authentication
+
+JWT bearer authentication, built on `@nestjs/passport` + `passport-jwt`.
+
+- **Register** — `POST /api/v1/auth/register`. Creates an account. Does **not** log the user in (no token returned) — registration and authentication are kept as separate, predictable steps. Duplicate email → `409`.
+- **Login** — `POST /api/v1/auth/login`. Verifies the Argon2 password hash, returns `{ accessToken, tokenType: "Bearer", expiresIn, user }`. Wrong password and unknown email both return the identical generic `401 Invalid email or password.` — no user enumeration.
+- **Protected endpoints** — send the token in the `Authorization` header:
+
+  ```
+  Authorization: Bearer <access-token>
+  ```
+
+  (Never a real token in this doc — get one from `/auth/login`.) Missing, malformed, tampered, or expired tokens all return the same generic `401`, never a library-internal error message.
+
+- **Current user** — `GET /api/v1/auth/me`, protected by `JwtAuthGuard`. Returns `{ id, name, email }` — never `passwordHash`.
+
+**How it works under the hood:** `JwtStrategy` validates the token's signature/expiry, then loads the current user from the database on every request (not just trusting the JWT payload) — this is what makes a JWT for a deleted account stop working immediately instead of remaining valid until it expires, since this project has no refresh-token/revocation mechanism (ADR-004). See [`docs/specs/phase-3-authentication.md`](docs/specs/phase-3-authentication.md) for the full trade-off writeup.
+
+**Password hashing:** Argon2id, OWASP's 2023-recommended minimum configuration (19 MiB memory, 2 iterations, 1 degree of parallelism) — sized for a web request, not maximized.
+
+**Authorization foundation for later phases:** any protected route can use `@CurrentUser() user: AuthenticatedUser` to get `{ id, name, email }` without touching `request.user` or knowing anything about JWTs — the future Events module's ownership checks (`event.createdBy === currentUser.id`) will use exactly this.
+
 ## API
 
 Currently implemented:
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/api/v1/health` | `{ status, database, info: { name, environment, uptime } }`. Pings Postgres with `SELECT 1`; returns `503` (standard error shape) if the database is unreachable. |
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/health` | Public | `{ status, database, info }`. Pings Postgres with `SELECT 1`; returns `503` if unreachable. |
+| POST | `/api/v1/auth/register` | Public | Create an account. `201` + safe user, `409` on duplicate email. |
+| POST | `/api/v1/auth/login` | Public | `200` + `{ accessToken, tokenType, expiresIn, user }`, or `401`. |
+| GET | `/api/v1/auth/me` | Bearer JWT | `200` + `{ id, name, email }`, or `401`. |
+
+Interactive API docs: **`http://localhost:3000/api/docs`** (Swagger UI) — click "Authorize" and paste `Bearer <token>` from `/auth/login` to try `/auth/me` directly in the browser.
 
 Global conventions already in place for future endpoints:
 - Base path `/api/v1` (URI versioning, default version `1`)
@@ -141,7 +169,7 @@ npm run format:check     # prettier --check
 
 npm test                # unit tests (no database required)
 npm run test:watch      # unit tests, watch mode
-npm run test:e2e        # end-to-end tests (Supertest against a full app instance — requires Postgres running)
+npm run test:e2e        # end-to-end tests, including the full auth flow (requires Postgres running)
 npm run test:db         # database integration tests against a real Postgres instance
 npm run test:cov        # unit tests with coverage
 ```
@@ -156,10 +184,12 @@ Full write-ups live in [`docs/specs/`](docs/specs), updated at the end of each p
 - [`docs/specs/phase-0-architecture.md`](docs/specs/phase-0-architecture.md) — architecture, database design, API contract, security model, RSVP concurrency design, ADRs 001–006
 - [`docs/specs/phase-1-foundation.md`](docs/specs/phase-1-foundation.md) — what Phase 1 built and why
 - [`docs/specs/phase-2-database.md`](docs/specs/phase-2-database.md) — what Phase 2 built and why, ADRs 007–010
+- [`docs/specs/phase-3-authentication.md`](docs/specs/phase-3-authentication.md) — what Phase 3 built and why, ADRs 011–013
 
-## Known Limitations (Phase 2)
+## Known Limitations (Phase 3)
 
-- No authentication, events, or RSVP endpoints yet — the schema and database boundary are ready for them.
+- No events or RSVP endpoints yet — the authorization foundation (`@CurrentUser()`, `AuthenticatedUser`) is ready for them.
+- No refresh tokens, session revocation, or OAuth/social login — out of scope for this assignment (ADR-004). A deleted user's token stops working immediately (the JWT strategy re-checks the database every request), but there's no way to revoke a *still-valid* user's token before it expires.
+- No rate limiting yet on `/auth/login` / `/auth/register` — flagged as a specific future hardening item in `docs/specs/phase-3-authentication.md`.
 - `npm run test:e2e` and `npm run test:db` require a running local Postgres (`docker compose up -d`); they are not hermetic like `npm test`.
-- No Swagger UI yet.
 - No application Dockerfile yet (Postgres has one via docker-compose; the app's own Dockerfile is deferred — see `docs/specs/phase-1-foundation.md`).

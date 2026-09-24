@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
@@ -45,6 +46,8 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
+  setupSwagger(app);
+
   app.enableShutdownHooks();
 
   const port = configService.get<number>('app.port', 3000);
@@ -71,6 +74,25 @@ function buildCorsOptions(configService: ConfigService): {
       : ['http://localhost:5173', 'http://localhost:3000'];
 
   return { origin: allowedOrigins, credentials: true };
+}
+
+// Mounted at a fixed path, independent of the URI versioning applied to
+// application routes — /api/docs stays stable even once a v2 exists.
+function setupSwagger(app: NestExpressApplication): void {
+  const document = SwaggerModule.createDocument(
+    app,
+    new DocumentBuilder()
+      .setTitle('EventHub API')
+      .setDescription('Event management and RSVP platform — backend API')
+      .setVersion('1.0')
+      .addBearerAuth(
+        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        'access-token',
+      )
+      .build(),
+  );
+
+  SwaggerModule.setup('api/docs', app, document);
 }
 
 // PostgreSQL is the sole source of truth for this API — an app that
