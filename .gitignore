@@ -1,0 +1,24 @@
+# compiled output
+/dist
+/node_modules
+/coverage
+
+# logs
+*.log
+npm-debug.log*
+
+# environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+
+# IDE
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# misc
+*.tsbuildinfo
