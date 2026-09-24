@@ -5,15 +5,27 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
 import { PinoLogger } from 'nestjs-pino';
 import { ErrorResponseBody } from '../types/error-response.type';
 
 /**
- * Catches every thrown exception (HttpException subclasses and anything
- * unexpected) and turns it into the single, predictable response shape
- * documented in the README. Never forwards stack traces, DB errors, or other
- * internal detail to the client.
+ * Prisma error codes we know how to map to a sensible HTTP status without
+ * any Events/RSVP-specific business logic. Full field-level error mapping
+ * (e.g. "which unique field collided") belongs to the feature modules that
+ * introduce those business rules — this is just "don't 500 on a known,
+ * generic database conflict."
+ */
+const PRISMA_CONFLICT_CODES = new Set(['P2002']); // unique constraint violation
+const PRISMA_NOT_FOUND_CODES = new Set(['P2025']); // record not found
+
+/**
+ * Catches every thrown exception (HttpException subclasses, known Prisma
+ * errors, and anything unexpected) and turns it into the single,
+ * predictable response shape documented in the README. Never forwards
+ * stack traces, DB errors, connection strings, or other internal detail to
+ * the client.
  */
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -27,7 +39,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
 
     const status = this.resolveStatus(exception);
-    const { message, error } = this.resolveMessage(exception);
+    const { message, error } = this.resolveMessage(exception, status);
     const requestId = (request as unknown as { id?: string }).id ?? 'unknown';
 
     const body: ErrorResponseBody = {
@@ -49,15 +61,40 @@ export class AllExceptionsFilter implements ExceptionFilter {
   }
 
   private resolveStatus(exception: unknown): HttpStatus {
-    return exception instanceof HttpException
-      ? exception.getStatus()
-      : HttpStatus.INTERNAL_SERVER_ERROR;
+    if (exception instanceof HttpException) {
+      return exception.getStatus();
+    }
+
+    if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+      if (PRISMA_CONFLICT_CODES.has(exception.code)) {
+        return HttpStatus.CONFLICT;
+      }
+      if (PRISMA_NOT_FOUND_CODES.has(exception.code)) {
+        return HttpStatus.NOT_FOUND;
+      }
+    }
+
+    return HttpStatus.INTERNAL_SERVER_ERROR;
   }
 
-  private resolveMessage(exception: unknown): {
+  private resolveMessage(
+    exception: unknown,
+    status: HttpStatus,
+  ): {
     message: string | string[];
     error: string;
   } {
+    if (
+      exception instanceof Prisma.PrismaClientKnownRequestError &&
+      status !== HttpStatus.INTERNAL_SERVER_ERROR
+    ) {
+      // Generic, safe messages only — never the raw Prisma error (which can
+      // include table/column names and query details).
+      return status === HttpStatus.CONFLICT
+        ? { message: 'Resource already exists', error: 'Conflict' }
+        : { message: 'Resource not found', error: 'Not Found' };
+    }
+
     if (!(exception instanceof HttpException)) {
       // Never leak internal error details (stack traces, DB errors, etc.)
       return {

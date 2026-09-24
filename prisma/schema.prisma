@@ -1,0 +1,92 @@
+// EventHub database schema.
+// Prisma 7: the datasource URL is NOT declared here — it lives in
+// prisma.config.ts (for the CLI) and is passed explicitly to the
+// @prisma/adapter-pg driver adapter at runtime (see src/database/prisma.service.ts).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// A registered EventHub user. Can create events and RSVP to events.
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  /// Always stored lowercased/trimmed (see repository layer, Phase 3) so the
+  /// unique constraint below is effectively case-insensitive without needing
+  /// a Postgres extension (citext).
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  createdEvents Event[]         @relation("EventCreator")
+  attendances   EventAttendee[]
+
+  @@map("users")
+}
+
+/// An event a user creates. Publicly readable; only the creator may edit/delete it.
+model Event {
+  id          String   @id @default(uuid()) @db.Uuid
+  title       String
+  /// Optional — not every event needs a long description.
+  description String?
+  location    String
+  startsAt    DateTime
+  endsAt      DateTime
+  /// Must be a positive integer. Enforced here at the application/Prisma
+  /// type level (Int) and additionally at the database level via a CHECK
+  /// constraint added by hand in the initial migration (Prisma's schema
+  /// language has no native CHECK-constraint syntax) — defense in depth
+  /// per Phase 0/2's stated preference.
+  capacity    Int
+  createdBy   String   @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Restrict, not Cascade: deleting a user account must not silently wipe
+  // out events other people have already RSVP'd to. A future account-
+  // deletion flow will need its own explicit handling for events the user
+  // created (reassign, soft-delete, or block deletion) — out of scope here.
+  creator User @relation("EventCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+
+  attendees EventAttendee[]
+
+  // Supports "find events created by this user" (ownership checks, "my events").
+  @@index([createdBy])
+  // Supports "list upcoming events ordered by startsAt" / "startsAt >= now()".
+  @@index([startsAt])
+  @@map("events")
+}
+
+/// One user's RSVP to one event. The (eventId, userId) unique constraint is
+/// the database-level guarantee against duplicate RSVPs, including under
+/// concurrent requests — see docs/specs/phase-0-architecture.md's RSVP
+/// concurrency design.
+model EventAttendee {
+  id       String   @id @default(uuid()) @db.Uuid
+  eventId  String   @db.Uuid
+  userId   String   @db.Uuid
+  joinedAt DateTime @default(now())
+
+  // An attendee record has no meaning without its event — cleaning these up
+  // when the event is deleted is correct, not just convenient.
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  // If a user's account is deleted, their RSVP rows should go with them
+  // rather than becoming orphaned references to a nonexistent user. This
+  // does not touch the Event itself.
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // The load-bearing constraint: makes duplicate RSVP impossible at the
+  // database level. Its leading column (eventId) also serves as the index
+  // for "find attendees for an event".
+  @@unique([eventId, userId])
+  // Composite unique above doesn't help "find events a user joined"
+  // (userId isn't the leading column) — a dedicated index does.
+  @@index([userId])
+  @@map("event_attendees")
+}

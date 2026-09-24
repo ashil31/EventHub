@@ -9,26 +9,29 @@ See [`docs/specs/`](docs/specs) for the full architecture, database design, API 
 ## Tech Stack
 
 - **Framework:** NestJS 11 (TypeScript, strict mode)
-- **Database:** PostgreSQL
-- **ORM:** Prisma (Phase 2)
+- **Database:** PostgreSQL 16
+- **ORM:** Prisma 7 (`@prisma/client` + `@prisma/adapter-pg`)
 - **Auth:** JWT + Argon2 (later phase)
 - **Docs:** Swagger / OpenAPI (later phase)
 - **Testing:** Jest, Supertest
 - **Logging:** Pino (structured JSON logs, request correlation IDs)
-- **Containerization:** Docker (later phase)
+- **Containerization:** Docker Compose (local Postgres only, so far)
 
 ## Current Status
 
-**Phase 1 complete.** This is the application foundation only:
+**Phase 2 complete.** Application foundation (Phase 1) plus the database layer:
 
-- NestJS bootstrap, global config, validation, security middleware, structured logging, exception handling, and a health endpoint.
-- **No database, authentication, events, or RSVP functionality exists yet.** `DATABASE_URL` and the JWT variables are part of the validated environment contract but are not consumed by any code in this phase.
+- PostgreSQL + Prisma, schema for `User`/`Event`/`EventAttendee`, an applied initial migration, a `PrismaService`/`PrismaModule` database boundary, database-backed health check, and a database integration test suite run against a real Postgres instance.
+- **No authentication, events, or RSVP endpoints exist yet.** The schema and database boundary are ready for them.
 
 ## Local Setup
 
 ```bash
-npm install
-cp .env.example .env   # then fill in real values for your machine
+npm install                # also runs `prisma generate` via postinstall
+cp .env.example .env       # then fill in real values for your machine
+docker compose up -d       # start local PostgreSQL
+npm run prisma:migrate:dev # apply migrations to your local database
+npm run db:seed            # optional: dev-only sample data
 npm run start:dev
 ```
 
@@ -42,10 +45,58 @@ See [`.env.example`](.env.example). All variables below are validated at startup
 |---|---|---|
 | `NODE_ENV` | yes | `development` \| `test` \| `production` |
 | `PORT` | yes | 1–65535 |
-| `DATABASE_URL` | yes | `postgresql://...` — not used until Phase 2, validated now to fix the contract |
+| `DATABASE_URL` | yes | `postgresql://...` — now used by Prisma/PrismaService |
 | `JWT_SECRET` | yes | ≥32 characters. In production, must not be the `.env.example` placeholder |
 | `JWT_EXPIRES_IN` | yes | e.g. `15m` — not used until auth is implemented |
 | `FRONTEND_URL` | no | Origin allowed by CORS. If unset in production, CORS denies all cross-origin requests |
+
+## Database
+
+PostgreSQL is the single source of truth (see [ADR-002](docs/specs/phase-0-architecture.md)). Prisma is the ORM (see [ADR-003](docs/specs/phase-0-architecture.md), [ADR-008](docs/specs/phase-2-database.md)).
+
+- Schema: [`prisma/schema.prisma`](prisma/schema.prisma)
+- Migrations: [`prisma/migrations/`](prisma/migrations) — applied with Prisma Migrate, never `db push` (see ADR-010)
+- Database access boundary: [`src/database/prisma.service.ts`](src/database/prisma.service.ts) + [`prisma.module.ts`](src/database/prisma.module.ts) — the only place `PrismaClient` is instantiated
+- Prisma config (used by the CLI, not the running app): [`prisma.config.ts`](prisma.config.ts)
+
+**Prisma 7 note:** `PrismaClient` requires an explicit driver adapter — there is no more implicit query-engine-binary connection. This project uses `@prisma/adapter-pg` (wraps `pg`) for PostgreSQL. The datasource URL is *not* declared in `schema.prisma` (Prisma 7 rejects that); it's read from `prisma.config.ts` for CLI commands and passed explicitly to the adapter at runtime via `ConfigService`.
+
+### Local PostgreSQL (Docker)
+
+```bash
+docker compose up -d      # start Postgres (named volume: eventhub_postgres_data)
+docker compose down       # stop, keep data
+docker compose down -v    # stop and wipe the volume (clean slate)
+```
+
+Dev-only credentials (`postgres`/`postgres`/`eventhub`), matching `.env.example`. This compose file is local-development-only — production connects to a managed Postgres instance via `DATABASE_URL`, no Docker involved.
+
+### Prisma Commands
+
+```bash
+npm run prisma:generate         # regenerate the Prisma Client (also runs automatically on npm install)
+npm run prisma:migrate:dev      # create + apply a migration from schema changes (development)
+npm run prisma:migrate:deploy   # apply pending migrations without creating new ones (production/CI)
+npm run prisma:studio           # open Prisma Studio (browse/edit data locally)
+npm run db:seed                 # populate dev-only sample data (refuses to run if NODE_ENV=production)
+```
+
+`prisma:migrate:dev` is development-only — it can create new migrations and will prompt to reset the database if drift is detected. Deployments must use `prisma:migrate:deploy`, which only applies existing, committed migrations.
+
+### Database Architecture
+
+Three tables: `users`, `events`, `event_attendees`. Full relationship diagram and reasoning: [`docs/specs/phase-0-architecture.md`](docs/specs/phase-0-architecture.md#database-design) (design) and [`docs/specs/phase-2-database.md`](docs/specs/phase-2-database.md) (implementation).
+
+- **User** creates many **Events** (`Event.createdBy`).
+- **User** attends many **Events** through **EventAttendee** (many-to-many join table).
+
+### Constraints
+
+- `users.email` — `UNIQUE`
+- `event_attendees(eventId, userId)` — composite `UNIQUE` — the database-level guarantee against duplicate RSVPs, including under concurrent requests
+- `events.capacity` — `CHECK (capacity > 0)`
+- Foreign keys: `events.createdBy → users.id` (`RESTRICT`), `event_attendees.eventId → events.id` (`CASCADE`), `event_attendees.userId → users.id` (`CASCADE`) — reasoning for each in [`docs/specs/phase-2-database.md`](docs/specs/phase-2-database.md)
+- Indexes: `events.createdBy`, `events.startsAt`, `event_attendees.userId` (plus the unique indexes above) — each tied to a specific query pattern, documented in the same file
 
 ## API
 
@@ -53,12 +104,12 @@ Currently implemented:
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/v1/health` | Liveness check — status, environment, uptime. No database check (introduced in Phase 2). |
+| GET | `/api/v1/health` | `{ status, database, info: { name, environment, uptime } }`. Pings Postgres with `SELECT 1`; returns `503` (standard error shape) if the database is unreachable. |
 
 Global conventions already in place for future endpoints:
 - Base path `/api/v1` (URI versioning, default version `1`)
 - Global `ValidationPipe` (`whitelist`, `forbidNonWhitelisted`, `transform`)
-- Consistent error shape on every thrown exception (see below)
+- Consistent error shape on every thrown exception (see below), including known Prisma errors (unique-constraint violations → `409`, not-found → `404`) mapped generically without leaking database detail
 
 ### Error response shape
 
@@ -88,23 +139,27 @@ npm run lint            # eslint --fix
 npm run format           # prettier --write
 npm run format:check     # prettier --check
 
-npm test                # unit tests
+npm test                # unit tests (no database required)
 npm run test:watch      # unit tests, watch mode
-npm run test:e2e        # end-to-end tests (Supertest against a full app instance)
+npm run test:e2e        # end-to-end tests (Supertest against a full app instance — requires Postgres running)
+npm run test:db         # database integration tests against a real Postgres instance
 npm run test:cov        # unit tests with coverage
 ```
+
+`npm test` never needs a database. `npm run test:e2e` and `npm run test:db` do — start Postgres first (`docker compose up -d`).
 
 ## Architecture & Decisions
 
 Full write-ups live in [`docs/specs/`](docs/specs), updated at the end of each phase:
 
 - [`docs/specs/phase.md`](docs/specs/phase.md) — phase index and status
-- [`docs/specs/phase-0-architecture.md`](docs/specs/phase-0-architecture.md) — architecture, database, API contract, security model, RSVP concurrency design, ADRs
+- [`docs/specs/phase-0-architecture.md`](docs/specs/phase-0-architecture.md) — architecture, database design, API contract, security model, RSVP concurrency design, ADRs 001–006
 - [`docs/specs/phase-1-foundation.md`](docs/specs/phase-1-foundation.md) — what Phase 1 built and why
+- [`docs/specs/phase-2-database.md`](docs/specs/phase-2-database.md) — what Phase 2 built and why, ADRs 007–010
 
-## Known Limitations (Phase 1)
+## Known Limitations (Phase 2)
 
-- No database connectivity, authentication, events, or RSVP functionality yet.
-- `/api/v1/health` performs no downstream checks (by design — added once Postgres exists).
+- No authentication, events, or RSVP endpoints yet — the schema and database boundary are ready for them.
+- `npm run test:e2e` and `npm run test:db` require a running local Postgres (`docker compose up -d`); they are not hermetic like `npm test`.
 - No Swagger UI yet.
-- No Dockerfile yet (deliberately deferred — see `docs/specs/phase-1-foundation.md`).
+- No application Dockerfile yet (Postgres has one via docker-compose; the app's own Dockerfile is deferred — see `docs/specs/phase-1-foundation.md`).

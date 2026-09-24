@@ -1,4 +1,8 @@
-import { ValidationPipe, VersioningType } from '@nestjs/common';
+import {
+  Logger as NestLogger,
+  ValidationPipe,
+  VersioningType,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
@@ -69,4 +73,16 @@ function buildCorsOptions(configService: ConfigService): {
   return { origin: allowedOrigins, credentials: true };
 }
 
-void bootstrap();
+// PostgreSQL is the sole source of truth for this API — an app that
+// "starts" without a database connection isn't actually functional. Fail
+// fast and let the process exit non-zero rather than serve a permanently
+// degraded instance; container orchestration (Docker/Railway/k8s) is built
+// to restart on a crash, which is simpler and clearer than a bespoke
+// retry/backoff loop here.
+bootstrap().catch((error: unknown) => {
+  new NestLogger('Bootstrap').error(
+    'Application failed to start',
+    error instanceof Error ? error.stack : String(error),
+  );
+  process.exit(1);
+});

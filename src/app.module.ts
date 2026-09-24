@@ -5,6 +5,7 @@ import { LoggerModule } from 'nestjs-pino';
 import configuration from './config/configuration';
 import { validate } from './config/env.validation';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { PrismaModule } from './database/prisma.module';
 import { HealthModule } from './health/health.module';
 
 @Module({
@@ -42,6 +43,7 @@ import { HealthModule } from './health/health.module';
         };
       },
     }),
+    PrismaModule,
     HealthModule,
   ],
   providers: [

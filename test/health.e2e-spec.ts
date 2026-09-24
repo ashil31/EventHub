@@ -45,6 +45,7 @@ describe('Health (e2e)', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
       status: 'ok',
+      database: 'up',
       info: {
         name: 'eventhub-api',
         environment: 'test',
