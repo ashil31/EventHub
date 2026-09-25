@@ -65,3 +65,39 @@ export function mockFetchJsonSequence(
   vi.stubGlobal('fetch', mock);
   return mock;
 }
+
+/**
+ * Routes each call by its request URL and HTTP method — for tests where
+ * a component fires more than one genuinely different endpoint, possibly
+ * sharing the exact same URL under different methods (e.g. `GET`/`POST`/
+ * `DELETE` all on `/events/:id/rsvp`), each needing its own distinct
+ * response, unlike `mockFetchJson`'s one fixed response for every call
+ * regardless of URL or method. Returning `'pending'` for a route gives a
+ * promise that never resolves — the same deferred-promise technique used
+ * elsewhere in this codebase to freeze a query in its loading state
+ * deterministically.
+ */
+export function mockFetchByUrl(
+  handler: (
+    url: string,
+    method: string,
+  ) => { status: number; body: unknown } | 'pending',
+): Mock {
+  const mock = vi.fn((url: string, options?: { method?: string }) => {
+    const result = handler(url, options?.method ?? 'GET');
+    if (result === 'pending') {
+      return new Promise<never>(() => {
+        // Deliberately never resolves.
+      });
+    }
+    const { status, body } = result;
+    return Promise.resolve({
+      ok: status >= 200 && status < 300,
+      status,
+      statusText: 'Mock Status',
+      json: () => Promise.resolve(body),
+    });
+  });
+  vi.stubGlobal('fetch', mock);
+  return mock;
+}

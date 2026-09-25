@@ -1,5 +1,5 @@
 import { apiClient } from '../../../lib/api/api-client';
-import type { Attendee, RsvpResult } from '../../../types/attendee';
+import type { Attendee, RsvpResult, RsvpStatus } from '../../../types/attendee';
 import type { PaginatedResponse } from '../../../types/pagination';
 
 /** Matches backend/src/rsvp/dto/list-attendees.dto.ts. */
@@ -26,6 +26,9 @@ function buildAttendeesQuery(pagination: AttendeesPagination): string {
  * determines who is RSVPing, never the request body.
  */
 export const rsvpApi = {
+  getRsvpStatus: (eventId: string): Promise<RsvpStatus> =>
+    apiClient.get<RsvpStatus>(`/events/${eventId}/rsvp`),
+
   rsvp: (eventId: string): Promise<RsvpResult> =>
     apiClient.post<RsvpResult>(`/events/${eventId}/rsvp`),
 

@@ -5,6 +5,7 @@ import { EventDetailMeta } from '../features/events/components/event-detail-meta
 import { EventDetailNotFound } from '../features/events/components/event-detail-not-found';
 import { EventDetailSkeleton } from '../features/events/components/event-detail-skeleton';
 import { useEvent } from '../features/events/queries/hooks';
+import { EventRsvpPanel } from '../features/rsvp/components/event-rsvp-panel';
 import { ApiError } from '../lib/api/api-error';
 
 /**
@@ -68,6 +69,7 @@ export function EventDetailPage() {
               {query.data.description}
             </p>
           )}
+          <EventRsvpPanel eventId={query.data.id} />
         </div>
       )}
     </div>

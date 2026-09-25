@@ -9,15 +9,17 @@ import { RedirectIfAuthenticated } from './redirect-if-authenticated';
 
 function renderPublicOnlyRoute(
   queryClient: ReturnType<typeof createTestQueryClient>,
+  initialEntry: { pathname: string; state?: unknown } = { pathname: '/login' },
 ) {
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/login']}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route element={<RedirectIfAuthenticated />}>
             <Route path="/login" element={<div>Login form</div>} />
           </Route>
           <Route path="/dashboard" element={<div>Dashboard</div>} />
+          <Route path="/events/e1" element={<div>Event detail page</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -62,5 +64,25 @@ describe('RedirectIfAuthenticated', () => {
       expect(screen.getByText('Dashboard')).toBeInTheDocument(),
     );
     expect(screen.queryByText('Login form')).not.toBeInTheDocument();
+  });
+
+  it('redirects to the preserved "from" destination instead of always /dashboard (regression — see component doc)', async () => {
+    setAuthToken('some-token');
+    mockFetchJson(200, {
+      id: 'u1',
+      name: 'Ashil Patel',
+      email: 'ashil@example.com',
+    });
+    const queryClient = createTestQueryClient();
+
+    renderPublicOnlyRoute(queryClient, {
+      pathname: '/login',
+      state: { from: { pathname: '/events/e1' } },
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText('Event detail page')).toBeInTheDocument(),
+    );
+    expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
   });
 });

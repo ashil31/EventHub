@@ -23,3 +23,15 @@ export interface RsvpResult {
   capacity: number;
   availableSpots: number;
 }
+
+/**
+ * The response body of `GET /events/:id/rsvp` — matches
+ * backend/src/rsvp/dto/rsvp-status-response.dto.ts. Added alongside that
+ * endpoint specifically so the frontend can know "is the current user
+ * already attending" without paginating through the attendee list (see
+ * frontend/docs/specs/phase-6-rsvp.md).
+ */
+export interface RsvpStatus {
+  attending: boolean;
+  joinedAt: string | null;
+}

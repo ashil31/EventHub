@@ -3,14 +3,24 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { toast } from 'sonner';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearAuthToken } from '../../../lib/api/auth-token';
 import { mockFetchInvalidJson, mockFetchJson } from '../../../test/mock-fetch';
 import { createTestQueryClient } from '../../../test/test-utils';
 import { LoginForm } from './login-form';
+import { RedirectIfAuthenticated } from './redirect-if-authenticated';
 
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
+
+// A successful login in one test sets a real token on the module-
+// singleton in auth-token.ts, which would otherwise leak into whichever
+// test runs next — most visibly for the RedirectIfAuthenticated-wrapped
+// test below, which specifically needs to start from "no token."
+beforeEach(() => {
+  clearAuthToken();
+});
 
 function renderLoginForm(
   queryClient: ReturnType<typeof createTestQueryClient>,
@@ -26,6 +36,35 @@ function renderLoginForm(
             path="/dashboard/settings"
             element={<div>Settings page</div>}
           />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+/**
+ * Wraps `LoginForm` in the real `RedirectIfAuthenticated` boundary, the
+ * way the actual router table does (`router.tsx`) — unlike
+ * `renderLoginForm` above. This is the only setup that can reproduce the
+ * real-browser race a plain `LoginForm` render can't: `useLogin`'s
+ * hook-level `onSuccess` flips `isAuthenticated` to `true` before
+ * `LoginForm`'s own call-level `onSuccess` navigates, so
+ * `RedirectIfAuthenticated` re-renders and may redirect on its own,
+ * first.
+ */
+function renderLoginFormBehindGuard(
+  queryClient: ReturnType<typeof createTestQueryClient>,
+  initialEntry: { pathname: string; state?: unknown },
+) {
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <Routes>
+          <Route element={<RedirectIfAuthenticated />}>
+            <Route path="/login" element={<LoginForm />} />
+          </Route>
+          <Route path="/dashboard" element={<div>Dashboard page</div>} />
+          <Route path="/events/e1" element={<div>Event detail page</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -101,6 +140,42 @@ describe('LoginForm', () => {
       expect(screen.getByText('Settings page')).toBeInTheDocument(),
     );
   });
+
+  it(
+    'redirects back to the originally-requested page even when wrapped in ' +
+      'RedirectIfAuthenticated (regression — a real-browser race let that ' +
+      'guard redirect to /dashboard first, discarding the "from" destination)',
+    async () => {
+      const user = userEvent.setup();
+      mockFetchJson(200, {
+        accessToken: 'jwt-token',
+        tokenType: 'Bearer',
+        expiresIn: '15m',
+        user: {
+          id: 'u1',
+          name: 'Ashil Patel',
+          email: 'ashil@example.com',
+          createdAt: '2026-09-25T00:00:00.000Z',
+        },
+      });
+      renderLoginFormBehindGuard(createTestQueryClient(), {
+        pathname: '/login',
+        state: { from: { pathname: '/events/e1' } },
+      });
+
+      await user.type(screen.getByLabelText('Email'), 'ashil@example.com');
+      await user.type(
+        screen.getByLabelText('Password'),
+        'a-reasonably-long-password',
+      );
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+      await waitFor(() =>
+        expect(screen.getByText('Event detail page')).toBeInTheDocument(),
+      );
+      expect(screen.queryByText('Dashboard page')).not.toBeInTheDocument();
+    },
+  );
 
   it('shows a pending state while the mutation is in flight and disables the submit button', async () => {
     const user = userEvent.setup();

@@ -2,8 +2,13 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { describe, expect, it } from 'vitest';
-import { mockFetchJson, mockFetchJsonSequence } from '../test/mock-fetch';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { clearAuthToken, setAuthToken } from '../lib/api/auth-token';
+import {
+  mockFetchByUrl,
+  mockFetchJson,
+  mockFetchJsonSequence,
+} from '../test/mock-fetch';
 import { createTestQueryClient } from '../test/test-utils';
 import { EventDetailPage } from './event-detail-page';
 
@@ -67,6 +72,12 @@ function renderDetailPage(initialPath: string) {
     </QueryClientProvider>,
   );
 }
+
+const ME_BODY = { id: 'u1', name: 'Ashil Patel', email: 'ashil@example.com' };
+
+beforeEach(() => {
+  clearAuthToken();
+});
 
 describe('EventDetailPage', () => {
   it('shows a loading skeleton, then renders the event', async () => {
@@ -152,5 +163,32 @@ describe('EventDetailPage', () => {
     expect(
       screen.getByRole('link', { name: /Back to events/ }),
     ).toHaveAttribute('href', '/events');
+  });
+
+  it('shows the RSVP panel signed out by default', async () => {
+    mockFetchJson(200, SAMPLE_EVENT);
+    renderDetailPage('/events/e1');
+
+    expect(
+      await screen.findByText('Sign in to RSVP for this event.'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the RSVP panel with a Join Event action when signed in', async () => {
+    mockFetchByUrl((url) => {
+      if (url.includes('/auth/me')) return { status: 200, body: ME_BODY };
+      if (url.endsWith('/rsvp')) {
+        return { status: 200, body: { attending: false, joinedAt: null } };
+      }
+      return { status: 200, body: SAMPLE_EVENT };
+    });
+    setAuthToken('a-token');
+
+    renderDetailPage('/events/e1');
+
+    await screen.findByRole('heading', { level: 1, name: SAMPLE_EVENT.title });
+    expect(
+      await screen.findByRole('button', { name: 'Join Event' }),
+    ).toBeInTheDocument();
   });
 });
