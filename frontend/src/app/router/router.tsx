@@ -35,6 +35,16 @@ const EventDetailPage = lazy(() =>
     default: m.EventDetailPage,
   })),
 );
+const CreateEventPage = lazy(() =>
+  import('../../pages/create-event-page').then((m) => ({
+    default: m.CreateEventPage,
+  })),
+);
+const EditEventPage = lazy(() =>
+  import('../../pages/edit-event-page').then((m) => ({
+    default: m.EditEventPage,
+  })),
+);
 const NotFoundPage = lazy(() =>
   import('../../pages/not-found-page').then((m) => ({
     default: m.NotFoundPage,
@@ -52,6 +62,12 @@ const NotFoundPage = lazy(() =>
  * alongside the other public routes — browsing events requires no
  * session, matching the backend's own `GET /events` (no guard). Same for
  * `/events/:eventId` (Phase 5) — `GET /events/:id` has no guard either.
+ * `/events/new` and `/events/:eventId/edit` (Phase 7) sit under the same
+ * `RequireAuth` boundary as `/dashboard` — creating/editing requires a
+ * session, matching the backend's own guards on `POST`/`PATCH /events`.
+ * React Router ranks the static `events/new` segment above the dynamic
+ * `events/:eventId`, so the two never collide regardless of declaration
+ * order.
  */
 export const router = createBrowserRouter([
   {
@@ -70,7 +86,11 @@ export const router = createBrowserRouter([
       },
       {
         element: <RequireAuth />,
-        children: [{ path: 'dashboard', element: <DashboardPage /> }],
+        children: [
+          { path: 'dashboard', element: <DashboardPage /> },
+          { path: 'events/new', element: <CreateEventPage /> },
+          { path: 'events/:eventId/edit', element: <EditEventPage /> },
+        ],
       },
       { path: '*', element: <NotFoundPage /> },
     ],

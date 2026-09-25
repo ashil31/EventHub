@@ -1,27 +1,13 @@
 import { Link, useParams } from 'react-router';
+import { EventDetailActions } from '../features/events/components/event-detail-actions';
 import { EventDetailError } from '../features/events/components/event-detail-error';
 import { EventDetailHeader } from '../features/events/components/event-detail-header';
 import { EventDetailMeta } from '../features/events/components/event-detail-meta';
 import { EventDetailNotFound } from '../features/events/components/event-detail-not-found';
 import { EventDetailSkeleton } from '../features/events/components/event-detail-skeleton';
+import { isMissingEvent } from '../features/events/lib/is-missing-event';
 import { useEvent } from '../features/events/queries/hooks';
 import { EventRsvpPanel } from '../features/rsvp/components/event-rsvp-panel';
-import { ApiError } from '../lib/api/api-error';
-
-/**
- * `GET /events/:id`'s only two possible 4xx responses are a genuine 404
- * ("Event not found") and a 400 from the backend's `ParseUUIDPipe` when
- * the route parameter isn't even a well-formed UUID (e.g. `/events/123`,
- * §3's required-to-handle case). Both mean the same thing to a visitor —
- * "this isn't a real event" — so both get the not-found UI rather than
- * the generic error state, which would otherwise surface a raw
- * class-validator message like "id must be a UUID".
- */
-function isMissingEvent(error: unknown): boolean {
-  return (
-    error instanceof ApiError && (error.status === 404 || error.status === 400)
-  );
-}
 
 /**
  * Route param → query state → render (§35) — nothing else. `useEvent`
@@ -63,6 +49,7 @@ export function EventDetailPage() {
       ) : (
         <div className="space-y-6">
           <EventDetailHeader event={query.data} />
+          <EventDetailActions event={query.data} />
           <EventDetailMeta event={query.data} />
           {query.data.description && (
             <p className="text-sm leading-relaxed whitespace-pre-line text-foreground">

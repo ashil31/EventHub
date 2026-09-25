@@ -1,3 +1,5 @@
+import { Link } from 'react-router';
+import { Button } from '../components/ui/button';
 import { EventList } from '../features/events/components/event-list';
 import { EventListEmpty } from '../features/events/components/event-list-empty';
 import { EventListError } from '../features/events/components/event-list-error';
@@ -22,11 +24,20 @@ export function EventsPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Events</h1>
-        <p className="mt-1 text-sm text-muted">
-          Browse and search events happening on EventHub.
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Events</h1>
+          <p className="mt-1 text-sm text-muted">
+            Browse and search events happening on EventHub.
+          </p>
+        </div>
+        {/* /events/new sits behind RequireAuth (§37) — a signed-out click
+            redirects through /login and back here via the existing
+            getRedirectPath mechanism, same as "Sign in to RSVP" (Phase 6);
+            no separate auth check needed in this page. */}
+        <Link to="/events/new" className="shrink-0">
+          <Button>Create event</Button>
+        </Link>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -77,3 +77,18 @@ body {
   outline-offset: 2px;
   border-radius: var(--radius);
 }
+
+/* Tailwind's preflight zeroes out every element's default margin,
+   including `<dialog>`'s own `margin: auto` — which is what the browser
+   normally uses to center it in the viewport. Restored explicitly rather
+   than left to a reset that has no idea `<dialog>` needs it. */
+dialog {
+  margin: auto;
+}
+
+/* The one place `<dialog>`'s backdrop is styled (Phase 7 § 27) — a plain
+   CSS rule rather than a Tailwind `backdrop:` utility, since that variant
+   isn't guaranteed available in this Tailwind v4 setup. */
+dialog::backdrop {
+  background-color: oklch(0 0 0 / 45%);
+}

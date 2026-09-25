@@ -2,15 +2,16 @@
 
 Tracks the state of the frontend phase by phase, mirroring [`backend/docs/specs/phase.md`](../../../backend/docs/specs/phase.md). Each phase has its own spec file in this folder with the full detail; this file is the status overview. Update this file (and the relevant phase file) at the end of every phase.
 
-| Phase | Title                                           | Status      | Spec                                                     |
-| ----- | ----------------------------------------------- | ----------- | -------------------------------------------------------- |
-| 0     | Architecture, Skills & Engineering Contract     | ✅ Complete | [phase-0-architecture.md](phase-0-architecture.md)       |
-| 1     | React Production Foundation                     | ✅ Complete | [phase-1-foundation.md](phase-1-foundation.md)           |
-| 2     | Typed API Layer & TanStack Query Architecture   | ✅ Complete | [phase-2-api-layer.md](phase-2-api-layer.md)             |
-| 3     | Authentication & Session Architecture           | ✅ Complete | [phase-3-authentication.md](phase-3-authentication.md)   |
-| 4     | Event Discovery, Search, Filtering & Pagination | ✅ Complete | [phase-4-event-discovery.md](phase-4-event-discovery.md) |
-| 5     | Event Detail & Event Information                | ✅ Complete | [phase-5-event-detail.md](phase-5-event-detail.md)       |
-| 6     | RSVP / Join Event Experience                    | ✅ Complete | [phase-6-rsvp.md](phase-6-rsvp.md)                       |
+| Phase | Title                                           | Status      | Spec                                                       |
+| ----- | ----------------------------------------------- | ----------- | ---------------------------------------------------------- |
+| 0     | Architecture, Skills & Engineering Contract     | ✅ Complete | [phase-0-architecture.md](phase-0-architecture.md)         |
+| 1     | React Production Foundation                     | ✅ Complete | [phase-1-foundation.md](phase-1-foundation.md)             |
+| 2     | Typed API Layer & TanStack Query Architecture   | ✅ Complete | [phase-2-api-layer.md](phase-2-api-layer.md)               |
+| 3     | Authentication & Session Architecture           | ✅ Complete | [phase-3-authentication.md](phase-3-authentication.md)     |
+| 4     | Event Discovery, Search, Filtering & Pagination | ✅ Complete | [phase-4-event-discovery.md](phase-4-event-discovery.md)   |
+| 5     | Event Detail & Event Information                | ✅ Complete | [phase-5-event-detail.md](phase-5-event-detail.md)         |
+| 6     | RSVP / Join Event Experience                    | ✅ Complete | [phase-6-rsvp.md](phase-6-rsvp.md)                         |
+| 7     | Event Creation & Ownership-Based Management     | ✅ Complete | [phase-7-event-management.md](phase-7-event-management.md) |
 
 ## What exists right now
 
@@ -20,8 +21,9 @@ Tracks the state of the frontend phase by phase, mirroring [`backend/docs/specs/
 - **Event discovery, end to end (Phase 4):** the public `/events` page — search (debounced, URL-owned), an "Upcoming"/"All events" timeframe toggle, pagination (backend's `page`/`totalPages` contract, with `placeholderData: keepPreviousData` for a smooth page-to-page transition), and loading/error/empty states — all built on the existing Phase 2 `useEvents` hook with no changes to its signature. 47 new tests, manually verified against the real local backend.
 - **Event detail, end to end (Phase 5):** the public `/events/:eventId` page — title, date/location/attendee/host metadata, description, and dedicated loading/not-found/error states — built entirely on the existing Phase 2 `useEvent` hook with no changes to its signature. Event cards now link to it (stretched-link pattern). A 400 (malformed id, from the backend's `ParseUUIDPipe`) is deliberately treated the same as a real 404 — see [phase-5-event-detail.md § F](phase-5-event-detail.md#f-loadingerrornot-found) before changing that logic. 15 new tests (146 total), manually verified against the real local backend including a real 404, a real 400, and a 375px mobile viewport.
 - **RSVP / Join Event, end to end (Phase 6):** the event detail page's RSVP panel — Join/Cancel actions, auth-aware ("Sign in to RSVP" with the event preserved as the post-login destination), server-authoritative (no client-side capacity math, no optimistic status), with distinct copy for full/duplicate/expired-session/not-found/network failures. Required one small, deliberately minimal backend addition — `GET /events/:id/rsvp` (current user's own attending/joinedAt status) — since no existing endpoint could answer that without paginating the attendee list; see [phase-6-rsvp.md § B](phase-6-rsvp.md#b-backend-contract) and [backend/docs/specs/phase-5-rsvp.md's Addendum](../../backend/docs/specs/phase-5-rsvp.md#addendum--get-eventsidrsvp-added-during-frontend-phase-6). Also fixed a real, previously-invisible bug in `RedirectIfAuthenticated` (a login-redirect race that always happened to land on `/dashboard` anyway until this phase's flow could target a different page) — see [phase-6-rsvp.md § I](phase-6-rsvp.md#i-a-real-bug-found-and-fixed--redirectifauthenticateds-redirect-race) before touching that component or `getRedirectPath` again. 32 new tests (178 total), manually verified end to end against the real local backend including a real 409 capacity-full rejection from a second real user.
-- No create/edit/attendee-management UI yet. The data-layer hooks for creating/editing events (Phase 2) already exist and are already authenticated automatically.
+- **Event creation & ownership-based management, end to end (Phase 7):** `/events/new` and `/events/:eventId/edit` (both `RequireAuth`-protected), one shared `EventForm` (React Hook Form + Zod) for both modes, owner-only Edit/Delete controls on the event detail page, a native-`<dialog>`-based delete confirmation, and a real datetime-local ↔ ISO-8601 UTC boundary with no timezone shift — all built entirely on the existing Phase 2 `useCreateEvent`/`useUpdateEvent`/`useDeleteEvent` hooks with zero changes to their signatures. Two real bugs found and fixed during this phase: jsdom doesn't implement `HTMLDialogElement.showModal()` (a global test-setup shim, not a workaround), and the delete dialog rendered off-center in a real browser (Tailwind's preflight zeroes `<dialog>`'s default `margin: auto`) — see [phase-7-event-management.md § I](phase-7-event-management.md#i-a-real-bug-found--jsdoms-missing-dialog-support-and-a-real-visual-bug--the-dialog-wasnt-centered). 70 new tests (248 total), manually verified end to end against the real local backend including a full create → edit (partial-PATCH verified) → delete cycle.
+- No attendee-management/admin UI yet — out of this project's scope per every phase brief so far.
 
 ## What's next
 
-Phase 7 (not yet scoped in a brief): event creation and ownership-based event management.
+Phase 8 (not yet scoped in a brief): application-wide UX polish, responsive/layout consistency, navigation, error boundaries, accessibility review, and final frontend integration.
