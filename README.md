@@ -5,7 +5,7 @@ EventHub is an event management and RSVP platform. This is a monorepo:
 ```text
 EventHub/
 ├── backend/    NestJS + PostgreSQL + Prisma API — see backend/README.md
-├── frontend/   React frontend (not started yet)
+├── frontend/   React frontend — architecture planned, not implemented yet — see frontend/README.md
 └── .github/    CI (runs against backend/)
 ```
 
@@ -26,7 +26,9 @@ npm run start:dev
 
 ## Frontend
 
-Not started. Will live in `frontend/` alongside `backend/` once that phase begins.
+Architecture and engineering contract are decided (React + TypeScript + Vite, React Router, TanStack Query v5 for server state, React Hook Form + Zod for forms, Tailwind CSS, URL-owned filter/pagination state, no global state library). No application code yet.
+
+Full documentation: **[`frontend/README.md`](frontend/README.md)**. Phase-by-phase plan: **[`frontend/docs/specs/`](frontend/docs/specs)**.
 
 ## CI/CD
 
