@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { Button } from '../../../components/ui/button';
 import { Field } from '../../../components/ui/field';
+import { PasswordField } from '../../../components/ui/password-field';
 import { ApiError } from '../../../lib/api/api-error';
 import { getRedirectPath } from '../lib/get-redirect-path';
 import { getAuthErrorMessage } from '../lib/error-messages';
@@ -63,9 +64,8 @@ export function LoginForm() {
           error={errors.email?.message}
           {...register('email')}
         />
-        <Field
+        <PasswordField
           label="Password"
-          type="password"
           autoComplete="current-password"
           error={errors.password?.message}
           {...register('password')}

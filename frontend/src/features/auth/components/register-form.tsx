@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { Button } from '../../../components/ui/button';
 import { Field } from '../../../components/ui/field';
+import { PasswordField } from '../../../components/ui/password-field';
 import { ApiError } from '../../../lib/api/api-error';
 import { getAuthErrorMessage } from '../lib/error-messages';
 import { useRegister } from '../queries/hooks';
@@ -70,9 +71,8 @@ export function RegisterForm() {
           error={errors.email?.message}
           {...register('email')}
         />
-        <Field
+        <PasswordField
           label="Password"
-          type="password"
           autoComplete="new-password"
           error={errors.password?.message}
           {...register('password')}
