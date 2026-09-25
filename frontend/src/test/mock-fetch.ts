@@ -42,3 +42,26 @@ export function mockFetchNetworkError(): Mock {
   vi.stubGlobal('fetch', mock);
   return mock;
 }
+
+/**
+ * One JSON response per call, in order — for tests where a single
+ * component issues more than one distinct request (e.g. pagination:
+ * page 1's response, then page 2's, each with different data), unlike
+ * `mockFetchJson`'s single fixed response reused for every call.
+ */
+export function mockFetchJsonSequence(
+  responses: Array<{ status: number; body: unknown }>,
+): Mock {
+  const mock = vi.fn();
+  for (const { status, body } of responses) {
+    const ok = status >= 200 && status < 300;
+    mock.mockResolvedValueOnce({
+      ok,
+      status,
+      statusText: 'Mock Status',
+      json: () => Promise.resolve(body),
+    });
+  }
+  vi.stubGlobal('fetch', mock);
+  return mock;
+}

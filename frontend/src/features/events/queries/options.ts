@@ -1,4 +1,4 @@
-import { queryOptions } from '@tanstack/react-query';
+import { keepPreviousData, queryOptions } from '@tanstack/react-query';
 import { eventsApi, type EventListFilters } from '../api/events-api';
 import { eventKeys } from './keys';
 
@@ -11,10 +11,19 @@ import { eventKeys } from './keys';
  * since neither has a concrete reason to diverge from that default.
  */
 export const eventsQueries = {
+  /**
+   * `placeholderData: keepPreviousData` (§ 11 of the Phase 4 brief): a
+   * page/search/timeframe change keeps rendering the previous result set
+   * while the new one loads instead of the whole grid disappearing behind
+   * a skeleton on every filter change. `useEvents` (Phase 2) is otherwise
+   * unchanged — this only affects the transition between two already-
+   * distinct query keys, never which key a given filter set maps to.
+   */
   list: (filters: EventListFilters) =>
     queryOptions({
       queryKey: eventKeys.list(filters),
       queryFn: () => eventsApi.listEvents(filters),
+      placeholderData: keepPreviousData,
     }),
 
   detail: (eventId: string) =>

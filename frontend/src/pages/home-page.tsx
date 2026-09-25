@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router';
 import { apiClient } from '../lib/api/api-client';
 import { Button } from '../components/ui/button';
 
@@ -36,9 +37,12 @@ export function HomePage() {
       <div>
         <h1 className="text-2xl font-bold">EventHub</h1>
         <p className="text-muted mt-1">
-          Event management and RSVP. Authentication is live — event browsing,
-          creation, and RSVP arrive in a later phase.
+          Event management and RSVP. Authentication and event browsing are live
+          — creation and RSVP arrive in a later phase.
         </p>
+        <Link to="/events">
+          <Button className="mt-4">Browse events</Button>
+        </Link>
       </div>
 
       <div className="rounded-lg border border-border p-4">
