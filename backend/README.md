@@ -398,6 +398,8 @@ The image is a non-root, multi-stage Debian-slim build (not Alpine — Prisma's 
 
 ### Railway Deployment Guide
 
+For a complete, click-by-click walkthrough (including how GitHub Actions fits in, generating `JWT_SECRET`, and troubleshooting), see **[`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md)**. Condensed version:
+
 1. Create a new Railway project.
 2. Add a PostgreSQL database to the project (Railway provisions it and exposes `DATABASE_URL` to other services in the project automatically).
 3. Add a new service, sourced from this GitHub repository. **Set the service's Root Directory to `backend`** (Railway service Settings → Source → Root Directory) — this is a monorepo, so Railway needs to know the API lives in `backend/`, not the repo root. With that set, Railway finds `Dockerfile` and `railway.json` inside `backend/` and builds from there automatically; no further build configuration is required.
