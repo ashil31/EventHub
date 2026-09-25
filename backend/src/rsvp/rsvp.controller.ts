@@ -23,6 +23,7 @@ import { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 import { ListAttendeesDto } from './dto/list-attendees.dto';
 import { PaginatedAttendeesResponseDto } from './dto/paginated-attendees-response.dto';
 import { RsvpResponseDto } from './dto/rsvp-response.dto';
+import { RsvpStatusResponseDto } from './dto/rsvp-status-response.dto';
 import { RsvpService } from './rsvp.service';
 
 @ApiTags('rsvp')
@@ -31,6 +32,22 @@ import { RsvpService } from './rsvp.service';
 @ApiBearerAuth('access-token')
 export class RsvpController {
   constructor(private readonly rsvpService: RsvpService) {}
+
+  @Get(':id/rsvp')
+  @ApiOperation({
+    summary: "Get the current user's RSVP status for an event",
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiResponse({ status: 200, type: RsvpStatusResponseDto })
+  @ApiResponse({ status: 400, description: 'Invalid event id' })
+  @ApiResponse({ status: 401, description: 'Missing or invalid access token' })
+  @ApiResponse({ status: 404, description: 'Event not found' })
+  getStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<RsvpStatusResponseDto> {
+    return this.rsvpService.getStatus(id, currentUser);
+  }
 
   @Post(':id/rsvp')
   @HttpCode(HttpStatus.CREATED)

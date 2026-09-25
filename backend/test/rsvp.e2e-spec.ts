@@ -137,6 +137,78 @@ describe('RSVP (e2e)', () => {
     await app.close();
   });
 
+  describe('GET /api/v1/events/:id/rsvp — status', () => {
+    it('requires authentication', async () => {
+      const owner = await createUser('status-noauth-owner');
+      const event = await createEvent(owner.token);
+
+      const response = await request(httpServer).get(
+        `/api/v1/events/${event.id}/rsvp`,
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it('returns attending: false before joining', async () => {
+      const owner = await createUser('status-notyet-owner');
+      const user = await createUser('status-notyet-user');
+      const event = await createEvent(owner.token);
+
+      const response = await request(httpServer)
+        .get(`/api/v1/events/${event.id}/rsvp`)
+        .set('Authorization', `Bearer ${user.token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ attending: false, joinedAt: null });
+    });
+
+    it('returns attending: true with joinedAt after joining', async () => {
+      const owner = await createUser('status-joined-owner');
+      const user = await createUser('status-joined-user');
+      const event = await createEvent(owner.token);
+
+      await request(httpServer)
+        .post(`/api/v1/events/${event.id}/rsvp`)
+        .set('Authorization', `Bearer ${user.token}`);
+
+      const response = await request(httpServer)
+        .get(`/api/v1/events/${event.id}/rsvp`)
+        .set('Authorization', `Bearer ${user.token}`);
+
+      expect(response.status).toBe(200);
+      const body = response.body as { attending: boolean; joinedAt: string };
+      expect(body.attending).toBe(true);
+      expect(typeof body.joinedAt).toBe('string');
+    });
+
+    it('returns attending: false again after cancelling', async () => {
+      const owner = await createUser('status-cancelled-owner');
+      const user = await createUser('status-cancelled-user');
+      const event = await createEvent(owner.token);
+
+      await request(httpServer)
+        .post(`/api/v1/events/${event.id}/rsvp`)
+        .set('Authorization', `Bearer ${user.token}`);
+      await request(httpServer)
+        .delete(`/api/v1/events/${event.id}/rsvp`)
+        .set('Authorization', `Bearer ${user.token}`);
+
+      const response = await request(httpServer)
+        .get(`/api/v1/events/${event.id}/rsvp`)
+        .set('Authorization', `Bearer ${user.token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ attending: false, joinedAt: null });
+    });
+
+    it('returns 404 for a nonexistent event', async () => {
+      const user = await createUser('status-missing-event');
+      const response = await request(httpServer)
+        .get('/api/v1/events/00000000-0000-0000-0000-000000000000/rsvp')
+        .set('Authorization', `Bearer ${user.token}`);
+      expect(response.status).toBe(404);
+    });
+  });
+
   describe('POST /api/v1/events/:id/rsvp — basic flow', () => {
     it('requires authentication', async () => {
       const owner = await createUser('rsvp-noauth-owner');

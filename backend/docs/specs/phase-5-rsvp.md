@@ -280,6 +280,23 @@ Phase 6 focuses on hardening rather than new features:
 
 - Rate limiting (`@nestjs/throttler`), specifically on `/auth/login`, `/auth/register`, and the RSVP endpoints — flagged as a known gap in Phases 3 and 5.
 - A final consistency pass over error handling, logging, and request-ID propagation across every module.
+
+## Addendum — `GET /events/:id/rsvp` (added during frontend Phase 6)
+
+This backend was marked complete and audited after backend Phase 8 (see `phase.md`: "No further backend phases are scoped"). One small addition was made afterward, while building the frontend's Phase 6 (RSVP UI):
+
+**Why:** `EventResponseDto` has no per-viewer field, and `GET /auth/me` carries no RSVP data either — there was genuinely no way for the frontend to know "is the current authenticated user already attending this event" without paginating through `GET /events/:id/attendees` and scanning every page for a matching user id, which doesn't scale and isn't what that endpoint is for. This was confirmed by inspection before writing any code, and the user explicitly chose the endpoint approach over the alternatives (scan attendees, or infer status reactively from mutation errors only) before it was implemented.
+
+**What was added:**
+- `GET /events/:id/rsvp` — new route on the existing `RsvpController` (same `JwtAuthGuard`/`ApiBearerAuth` as `join`/`cancel`/`listAttendees`, no new guard logic).
+- `RsvpService.getStatus(eventId, currentUser)` — one `eventsRepository.findById` existence check (404 if missing, same as `cancel`/`listAttendees`) plus one `rsvpRepository.findAttendee` call, the exact same single indexed `eventAttendee.findUnique` lookup on `eventId_userId` that `join`/`cancel` already use to check existence. No new query pattern, no lock, no transaction — this is a plain read of current state, not a decision that needs race-freedom against a concurrent join/cancel.
+- `RsvpStatusResponseDto` — `{ attending: boolean, joinedAt: Date | null }`, nothing else.
+
+**What was deliberately not changed:** `EventResponseDto`, `GET /events` (still fully public, no auth requirement added), `GET /events/:id` (same), and every other existing route/response shape — all untouched. This keeps the addition additive and isolated: existing frontend code (Phases 4–5) and existing tests needed zero changes because of it.
+
+**Tests added:** 3 new unit tests (`rsvp.service.spec.ts`'s `getStatus` block — 404, not-attending, attending) and 5 new e2e tests (`rsvp.e2e-spec.ts` — auth required, false before joining, true with a real `joinedAt` after joining, false again after cancelling, 404 for a nonexistent event) against the real HTTP stack and real Postgres. Full suite re-run after the change: 62/62 unit tests and 33/33 RSVP e2e tests pass, including every pre-existing concurrency/capacity test, unaffected.
+
+**Deployment note:** this change exists in the local backend and its git history but has not been deployed to the Render production API as of this addendum — the frontend's local development against this change is verified; redeploying the live API is a separate, explicit decision for whoever owns that deployment to make.
 - Security hardening review across the whole API surface (not just what individual phases flagged).
 - Production readiness: environment validation review, graceful shutdown behavior under load, and a final performance review of the query patterns introduced across Phases 2–5.
 

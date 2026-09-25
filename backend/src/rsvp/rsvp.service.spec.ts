@@ -57,6 +57,39 @@ describe('RsvpService', () => {
     service = new RsvpService(prisma, eventsRepository, rsvpRepository);
   });
 
+  describe('getStatus', () => {
+    it('throws 404 for a nonexistent event', async () => {
+      eventsRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.getStatus('missing', currentUser),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(rsvpRepository.findAttendee).not.toHaveBeenCalled();
+    });
+
+    it('returns attending: false when there is no attendee row', async () => {
+      eventsRepository.findById.mockResolvedValue({} as never);
+      rsvpRepository.findAttendee.mockResolvedValue(null);
+
+      const result = await service.getStatus('event-1', currentUser);
+
+      expect(result).toEqual({ attending: false, joinedAt: null });
+    });
+
+    it('returns attending: true with joinedAt when an attendee row exists', async () => {
+      eventsRepository.findById.mockResolvedValue({} as never);
+      const attendee = buildAttendee();
+      rsvpRepository.findAttendee.mockResolvedValue(attendee);
+
+      const result = await service.getStatus('event-1', currentUser);
+
+      expect(result).toEqual({
+        attending: true,
+        joinedAt: attendee.joinedAt,
+      });
+    });
+  });
+
   describe('join', () => {
     it('succeeds and returns the authoritative counts', async () => {
       eventsRepository.findByIdForUpdate.mockResolvedValue(buildLockRow());

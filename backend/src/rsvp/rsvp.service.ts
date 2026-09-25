@@ -11,6 +11,7 @@ import { toAttendeeResponse } from './dto/attendee-response.dto';
 import { ListAttendeesDto } from './dto/list-attendees.dto';
 import { PaginatedAttendeesResponseDto } from './dto/paginated-attendees-response.dto';
 import { RsvpResponseDto } from './dto/rsvp-response.dto';
+import { RsvpStatusResponseDto } from './dto/rsvp-status-response.dto';
 import { RsvpRepository } from './rsvp.repository';
 
 const ALREADY_RSVPD_MESSAGE = "You have already RSVP'd to this event.";
@@ -29,6 +30,36 @@ export class RsvpService {
     private readonly eventsRepository: EventsRepository,
     private readonly rsvpRepository: RsvpRepository,
   ) {}
+
+  /**
+   * Added for the frontend's Phase 6 (see docs/specs/phase-5-rsvp.md's
+   * Addendum) — the event detail response has no per-viewer field, so
+   * this is the only way the frontend can know "is the current user
+   * already attending" without scanning `listAttendees`. No lock, no
+   * transaction: this is a read of current state, not a decision that
+   * needs to be race-free against a concurrent join/cancel — the same
+   * single indexed lookup `join`/`cancel` already use to check existence.
+   */
+  async getStatus(
+    eventId: string,
+    currentUser: AuthenticatedUser,
+  ): Promise<RsvpStatusResponseDto> {
+    const event = await this.eventsRepository.findById(eventId);
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    const attendee = await this.rsvpRepository.findAttendee(
+      eventId,
+      currentUser.id,
+      this.prisma,
+    );
+
+    return {
+      attending: attendee !== null,
+      joinedAt: attendee?.joinedAt ?? null,
+    };
+  }
 
   async join(
     eventId: string,
