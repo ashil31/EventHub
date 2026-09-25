@@ -28,7 +28,7 @@ export function EventTimeframeToggle({
           aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
           className={cn(
-            'rounded px-3 py-1.5 text-sm font-medium transition-colors',
+            'cursor-pointer rounded px-3 py-1.5 text-sm font-medium transition-colors',
             value === option.value
               ? 'bg-primary text-primary-foreground'
               : 'text-muted hover:text-foreground',

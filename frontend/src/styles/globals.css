@@ -24,6 +24,22 @@
   --card: oklch(1 0 0);
   --ring: oklch(0.546 0.215 264 / 40%);
   --radius: 0.5rem;
+
+  /* The "secondary" button surface (Edit/Cancel/Sign out/pagination/…) —
+   * deliberately NOT redefined under the dark-mode override below. It's a
+   * fixed near-white surface with dark text and a hairline border in both
+   * themes, the same "light chip on any background" treatment Vercel uses
+   * for its own secondary buttons, rather than a `bg-muted`/`text-foreground`
+   * pairing that used to invert into low-contrast gray-on-gray depending on
+   * theme and had no border to stay legible against a white page. */
+  --secondary: oklch(0.98 0.002 286);
+  --secondary-foreground: oklch(0.145 0.004 286);
+  --secondary-border: oklch(0.87 0.004 286);
+  /* A dedicated hover shade, not `hover:opacity-90` (the shared treatment
+   * for the saturated primary/destructive buttons) — dimming a surface
+   * this close to white by 10% opacity is nearly imperceptible. This is
+   * visibly darker than `--secondary` at a glance, in both themes. */
+  --secondary-hover: oklch(0.9 0.003 286);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -52,6 +68,10 @@
   --color-border: var(--border);
   --color-card: var(--card);
   --color-ring: var(--ring);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary-border: var(--secondary-border);
+  --color-secondary-hover: var(--secondary-hover);
   --radius-md: var(--radius);
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
