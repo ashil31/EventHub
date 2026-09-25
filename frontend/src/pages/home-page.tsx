@@ -36,8 +36,8 @@ export function HomePage() {
       <div>
         <h1 className="text-2xl font-bold">EventHub</h1>
         <p className="text-muted mt-1">
-          Frontend foundation — Phase 1. Routing, providers, and the API client
-          are wired up; features come next.
+          Event management and RSVP. Authentication is live — event browsing,
+          creation, and RSVP arrive in a later phase.
         </p>
       </div>
 

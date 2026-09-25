@@ -2,18 +2,20 @@
 
 Tracks the state of the frontend phase by phase, mirroring [`backend/docs/specs/phase.md`](../../../backend/docs/specs/phase.md). Each phase has its own spec file in this folder with the full detail; this file is the status overview. Update this file (and the relevant phase file) at the end of every phase.
 
-| Phase | Title                                         | Status      | Spec                                               |
-| ----- | --------------------------------------------- | ----------- | -------------------------------------------------- |
-| 0     | Architecture, Skills & Engineering Contract   | ✅ Complete | [phase-0-architecture.md](phase-0-architecture.md) |
-| 1     | React Production Foundation                   | ✅ Complete | [phase-1-foundation.md](phase-1-foundation.md)     |
-| 2     | Typed API Layer & TanStack Query Architecture | ✅ Complete | [phase-2-api-layer.md](phase-2-api-layer.md)       |
+| Phase | Title                                         | Status      | Spec                                                   |
+| ----- | --------------------------------------------- | ----------- | ------------------------------------------------------ |
+| 0     | Architecture, Skills & Engineering Contract   | ✅ Complete | [phase-0-architecture.md](phase-0-architecture.md)     |
+| 1     | React Production Foundation                   | ✅ Complete | [phase-1-foundation.md](phase-1-foundation.md)         |
+| 2     | Typed API Layer & TanStack Query Architecture | ✅ Complete | [phase-2-api-layer.md](phase-2-api-layer.md)           |
+| 3     | Authentication & Session Architecture         | ✅ Complete | [phase-3-authentication.md](phase-3-authentication.md) |
 
 ## What exists right now
 
-- Architecture decided (Phase 0), working project foundation (Phase 1): Vite + React 19 + strict TypeScript + Tailwind v4 + React Router + a single `QueryClient` + a generic, tested `apiClient`/`ApiError`.
-- Full typed data layer (Phase 2): domain types matching the real backend DTOs (`src/types/`), feature API modules (`src/features/{auth,events,rsvp}/api/`), query-key factories + `queryOptions()` objects, and every custom hook a future page needs (`useEvents`, `useEvent`, `useCurrentUser`, `useLogin`, `useRegister`, `useLogout`, `useCreateEvent`, `useUpdateEvent`, `useDeleteEvent`, `useEventAttendees`, `useRsvp`, `useCancelRsvp`) — all built directly against the verified backend contract, with three real discrepancies found and corrected along the way (see [phase-2-api-layer.md § D](phase-2-api-layer.md#d-api-contract-all-frontend-api-functions-verified-against-the-real-backend-source--not-the-briefs-illustrative-contract) and [§ O](phase-2-api-layer.md#o-problems-found)). Real token storage (`localStorage`, one module) now wired into the API client. 37 tests passing across 9 files; `dev`/`build`/`preview`/`lint`/`format:check`/`typecheck`/`test` all verified.
-- No feature UI yet — no login/register forms, no event list/detail pages, no RSVP buttons.
+- Architecture (Phase 0), project foundation (Phase 1), and the full typed API/query data layer (Phase 2) — see those specs for detail.
+- **Authentication, end to end (Phase 3):** register, login, `GET /auth/me`-backed session persistence (`localStorage`, one module), protected routing (`RequireAuth`/`RedirectIfAuthenticated`), global 401 handling, and logout — all built, tested (84 tests), and manually verified in a real browser against the real local backend. Toast notifications (`sonner`) for login/register/logout outcomes. New pages: `/login`, `/register`, `/dashboard` (the one protected placeholder this phase needed). New design-system primitives: `Card`, `Input`, `Label`, `Field`, `Spinner`.
+- A real, since-fixed bug worth knowing about: logging out didn't update already-mounted components immediately because `queryClient.removeQueries()` doesn't notify existing observers — see [phase-3-authentication.md § L #1](phase-3-authentication.md#l-problems-found) if touching `useLogout`/`installAuthErrorHandling` again.
+- No event functionality yet — no event list/detail pages, no create/edit forms, no RSVP UI. The data-layer hooks for all of that (Phase 2) already exist and are already authenticated automatically.
 
 ## What's next
 
-Phase 3: real UI on top of this data layer — auth forms (React Hook Form + Zod), an event list page with URL-owned filters, an event detail page, create/edit event forms, and RSVP actions — built entirely by composing the hooks Phase 2 already proved, per [phase-2-api-layer.md § P](phase-2-api-layer.md#p-phase-3-preparation).
+Phase 4 (not yet scoped in a brief): event UI — list/detail pages, create/edit forms, RSVP actions — built by composing Phase 2's existing hooks and this phase's design-system primitives, with `RequireAuth` wrapping whichever pages need a signed-in user.

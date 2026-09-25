@@ -28,6 +28,32 @@ export function useCurrentUser() {
 }
 
 /**
+ * The small authentication-state abstraction (§ 12) every protected-route
+ * boundary and auth-aware component reads instead of calling
+ * `useCurrentUser()` and re-deriving these three states itself.
+ *
+ * `isLoading` is NOT simply `useCurrentUser().isPending` — in TanStack
+ * Query v5, a disabled query (no token at all) reports `status: 'pending'`
+ * forever, since it has never run and never will. That's "we already know
+ * there's nothing to check," not "checking." `isLoading` here is only true
+ * when a token genuinely exists and its validity hasn't been confirmed yet
+ * — exactly the case `ProtectedRoute`/`RedirectIfAuthenticated` need to
+ * show a neutral loading state for, instead of flashing "logged out" then
+ * "logged in" on every hard refresh (§ 30).
+ */
+export function useAuth() {
+  const query = useCurrentUser();
+  const hasToken = getAuthToken() !== null;
+
+  return {
+    user: query.data ?? null,
+    isAuthenticated: query.isSuccess,
+    isLoading: hasToken && query.isPending,
+    isError: query.isError,
+  } as const;
+}
+
+/**
  * On success: stores the token (the one place `setAuthToken` is called
  * outside `auth-token.ts` itself) and writes the response's user directly
  * into the `auth.me` cache via `setQueryData` — the login response is
@@ -70,19 +96,38 @@ export function useRegister() {
 /**
  * Not a `useMutation` — there is no logout endpoint to call (the backend
  * is stateless JWT auth; § 32 explicitly says not to invent one). Clears
- * the stored token and removes (not just invalidates) the cached current
- * user, so a stale user can never flash before a redirect. No other query
- * is cleared: in this contract, `auth.me` is the only cached data that is
- * actually per-user — event and attendee-list responses are identical
- * regardless of who's asking (attendee listing is auth-gated, but its
- * *content* isn't user-specific), so `queryClient.clear()` would only
- * cause pointless refetches of data that was never wrong (§ 33).
+ * the stored token and evicts the cached current user, so a stale user
+ * can never flash before a redirect. No other query is cleared: in this
+ * contract, `auth.me` is the only cached data that is actually per-user —
+ * event and attendee-list responses are identical regardless of who's
+ * asking (attendee listing is auth-gated, but its *content* isn't
+ * user-specific), so `queryClient.clear()` would only cause pointless
+ * refetches of data that was never wrong (§ 33).
+ *
+ * `.reset()` on the cache entry directly, NOT `queryClient.removeQueries()`
+ * alone — a real bug found while manually verifying this flow (§ 49): a
+ * still-mounted observer (`RootLayout`'s `useAuth()`, on screen for the
+ * entire session) holds a direct reference to the `Query` object.
+ * `removeQueries` only deletes that object from the cache's lookup map; it
+ * never tells an observer already holding a reference that anything
+ * changed, so the header kept rendering the old signed-in user
+ * indefinitely. `query.reset()` explicitly transitions the query back to
+ * its initial state and synchronously notifies every observer of that —
+ * this is what actually makes `isSuccess` flip to `false` right away.
+ * (`queryClient.resetQueries()` would do this too, but it also triggers a
+ * refetch of any still-"active" query afterward — and at the exact moment
+ * it runs, the observer's `enabled` is still the stale pre-logout `true`,
+ * so it would fire one guaranteed, wasted 401 request; going straight to
+ * the cache entry's own `reset()` avoids that.) `removeQueries` still
+ * follows, to fully evict the now-empty entry from the cache rather than
+ * leaving a reset-but-present one behind.
  */
 export function useLogout() {
   const queryClient = useQueryClient();
 
   return useCallback(() => {
     clearAuthToken();
+    queryClient.getQueryCache().find({ queryKey: authKeys.me() })?.reset();
     queryClient.removeQueries({ queryKey: authKeys.me() });
   }, [queryClient]);
 }
