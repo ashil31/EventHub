@@ -1,6 +1,8 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Button } from '../ui/button';
 
+const HOME_PATH = '/events';
+
 interface Props {
   children: ReactNode;
 }
@@ -31,7 +33,11 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   private handleReload = (): void => {
-    window.location.assign('/');
+    window.location.reload();
+  };
+
+  private handleBrowseEvents = (): void => {
+    window.location.assign(HOME_PATH);
   };
 
   override render(): ReactNode {
@@ -40,9 +46,14 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="flex min-h-dvh flex-col items-center justify-center gap-4 p-6 text-center">
           <h1 className="text-xl font-semibold">Something went wrong</h1>
           <p className="text-muted max-w-sm">
-            An unexpected error occurred. Try reloading the page.
+            An unexpected error occurred. Please try again.
           </p>
-          <Button onClick={this.handleReload}>Reload</Button>
+          <div className="flex gap-3">
+            <Button onClick={this.handleReload}>Reload</Button>
+            <Button variant="secondary" onClick={this.handleBrowseEvents}>
+              Browse events
+            </Button>
+          </div>
         </div>
       );
     }

@@ -1,8 +1,8 @@
 # EventHub Frontend
 
-React frontend for EventHub, consuming the [NestJS backend](../backend). Foundation, the typed data layer, full authentication, public event discovery + detail, RSVP (join/cancel, server-authoritative), and event creation/editing/deletion (ownership-aware) are all in place; attendee-management/admin UI hasn't started (and isn't in this project's scope).
+React frontend for EventHub, consuming the [NestJS backend](../backend). Foundation, the typed data layer, full authentication, public event discovery + detail, RSVP (join/cancel, server-authoritative), event creation/editing/deletion (ownership-aware), and a Phase 8 final-integration/production audit are all in place; attendee-management/admin UI hasn't started (and isn't in this project's scope). The frontend is considered feature-complete as of Phase 8.
 
-Architecture, state-ownership model, TanStack Query strategy, API client design: **[`docs/specs/phase-0-architecture.md`](docs/specs/phase-0-architecture.md)**. Data layer details: **[`docs/specs/phase-2-api-layer.md`](docs/specs/phase-2-api-layer.md)**. Authentication architecture: **[`docs/specs/phase-3-authentication.md`](docs/specs/phase-3-authentication.md)**. Event discovery architecture: **[`docs/specs/phase-4-event-discovery.md`](docs/specs/phase-4-event-discovery.md)**. Event detail architecture: **[`docs/specs/phase-5-event-detail.md`](docs/specs/phase-5-event-detail.md)**. RSVP architecture: **[`docs/specs/phase-6-rsvp.md`](docs/specs/phase-6-rsvp.md)**. Event creation/management architecture: **[`docs/specs/phase-7-event-management.md`](docs/specs/phase-7-event-management.md)**. Phase-by-phase status: **[`docs/specs/phase.md`](docs/specs/phase.md)**.
+Architecture, state-ownership model, TanStack Query strategy, API client design: **[`docs/specs/phase-0-architecture.md`](docs/specs/phase-0-architecture.md)**. Data layer details: **[`docs/specs/phase-2-api-layer.md`](docs/specs/phase-2-api-layer.md)**. Authentication architecture: **[`docs/specs/phase-3-authentication.md`](docs/specs/phase-3-authentication.md)**. Event discovery architecture: **[`docs/specs/phase-4-event-discovery.md`](docs/specs/phase-4-event-discovery.md)**. Event detail architecture: **[`docs/specs/phase-5-event-detail.md`](docs/specs/phase-5-event-detail.md)**. RSVP architecture: **[`docs/specs/phase-6-rsvp.md`](docs/specs/phase-6-rsvp.md)**. Event creation/management architecture: **[`docs/specs/phase-7-event-management.md`](docs/specs/phase-7-event-management.md)**. Final integration / production audit: **[`docs/specs/phase-8-final-integration.md`](docs/specs/phase-8-final-integration.md)**. Phase-by-phase status: **[`docs/specs/phase.md`](docs/specs/phase.md)**.
 
 ## Stack
 
@@ -17,7 +17,7 @@ cp .env.example .env   # set VITE_API_URL to your local backend (see backend/REA
 npm run dev
 ```
 
-Then visit `/register` to create an account, `/login` to sign in, `/dashboard` to see the protected placeholder page, and `/events` to browse, search, filter, and paginate events — click any event to see its detail page, RSVP, or (if you're signed in) edit/delete it if you created it; "Create event" on the events page opens `/events/new` (signing in is only required for the actions that need it, not for browsing).
+Then visit `/register` to create an account, `/login` to sign in, `/dashboard` to see your profile, and `/events` to browse, search, filter, and paginate events — click any event to see its detail page, RSVP, or (if you're signed in) edit/delete it if you created it; "Create event" opens `/events/new` (signing in is only required for the actions that need it, not for browsing). Once signed in, navigation moves to a persistent left sidebar (Events / Create event / Profile / Sign out); signed out, it's a top bar.
 
 Other scripts: `npm run build`, `npm run preview`, `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test`.
 
@@ -58,4 +58,4 @@ frontend/
 └── .env.example
 ```
 
-Every backend endpoint has a typed API function, a query key, and a hook (Phase 2). Auth (Phase 3), public event discovery (Phase 4), event detail (Phase 5), RSVP (Phase 6), and event creation/editing/deletion (Phase 7) are all fully wired through real UI. Attendee-management/admin UI is not in this project's scope.
+Every backend endpoint has a typed API function, a query key, and a hook (Phase 2). Auth (Phase 3), public event discovery (Phase 4), event detail (Phase 5), RSVP (Phase 6), and event creation/editing/deletion (Phase 7) are all fully wired through real UI, and Phase 8 audited/hardened the whole thing (navigation, accessibility, cache cleanup, dead code, production checklist) without adding new product features. Attendee-management/admin UI is not in this project's scope.

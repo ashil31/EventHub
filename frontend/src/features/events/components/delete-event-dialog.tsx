@@ -54,7 +54,11 @@ export function DeleteEventDialog({
       <Button variant="destructive" onClick={() => setOpen(true)}>
         Delete event
       </Button>
-      <Dialog open={open} onClose={() => setOpen(false)}>
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        aria-labelledby="delete-event-title"
+      >
         <h2
           id="delete-event-title"
           className="text-base font-semibold text-foreground"

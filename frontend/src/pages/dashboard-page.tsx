@@ -3,9 +3,10 @@ import { useAuth } from '../features/auth/queries/hooks';
 
 /**
  * Minimal protected placeholder — proves the `RequireAuth` boundary end
- * to end (§ 49). Event management UI is a later phase; this phase is
- * authentication only. Sign-out lives in the header nav (`RootLayout`),
- * not duplicated here.
+ * to end (§ 49 of Phase 3). Sign-out lives in the header nav
+ * (`RootLayout`), not duplicated here; "Events"/"Create event" likewise
+ * (Phase 8 audit — this page's own copy used to claim those features
+ * were still a "later phase" after Phases 4-7 had already shipped them).
  */
 export function DashboardPage() {
   const { user } = useAuth();
@@ -17,10 +18,6 @@ export function DashboardPage() {
           Welcome{user ? `, ${user.name}` : ''}
         </h1>
         <p className="text-muted mt-1 text-sm">{user?.email}</p>
-        <p className="text-muted mt-4 text-sm">
-          You're signed in. Event browsing, creation, and RSVP live here in a
-          later phase.
-        </p>
       </Card>
     </div>
   );

@@ -6,6 +6,7 @@ import {
   setAuthToken,
 } from '../../../lib/api/auth-token';
 import type { UserSummary } from '../../../types/user';
+import { rsvpKeys } from '../../rsvp/queries/keys';
 import { authApi, type LoginInput, type RegisterInput } from '../api/auth-api';
 import { authKeys } from './keys';
 import { authQueries } from './options';
@@ -121,6 +122,14 @@ export function useRegister() {
  * the cache entry's own `reset()` avoids that.) `removeQueries` still
  * follows, to fully evict the now-empty entry from the cache rather than
  * leaving a reset-but-present one behind.
+ *
+ * `rsvpKeys.all` is removed too (Phase 8 audit) — unlike event/attendee
+ * data, `rsvp.status(eventId)` genuinely is per-user (the signed-out-out
+ * user's own attending/joinedAt for that event), and it has no mounted
+ * observer holding a stale reference the way `auth.me` did, so a plain
+ * `removeQueries` is sufficient here: the next signed-in user to view that
+ * event refetches their own status instead of briefly seeing the previous
+ * user's cached one.
  */
 export function useLogout() {
   const queryClient = useQueryClient();
@@ -129,5 +138,6 @@ export function useLogout() {
     clearAuthToken();
     queryClient.getQueryCache().find({ queryKey: authKeys.me() })?.reset();
     queryClient.removeQueries({ queryKey: authKeys.me() });
+    queryClient.removeQueries({ queryKey: rsvpKeys.all });
   }, [queryClient]);
 }
