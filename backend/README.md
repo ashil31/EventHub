@@ -35,7 +35,7 @@ These are the guarantees EventHub's backend must never violate. Every one of the
 - **Logging:** Pino (structured JSON logs, request correlation IDs)
 - **Containerization:** Docker (multi-stage production `Dockerfile`), Docker Compose (local Postgres)
 - **CI/CD:** GitHub Actions (lint, build, full test suite, Docker build + runtime smoke test)
-- **Target deployment:** Railway (API container + managed PostgreSQL)
+- **Target deployment:** Render (API container + managed PostgreSQL)
 
 ## Current Status
 
@@ -46,7 +46,7 @@ These are the guarantees EventHub's backend must never violate. Every one of the
 - Full Events CRUD (create/list/get/update/delete), creator-only update/delete authorization, pagination, search, and date filtering.
 - Join/cancel RSVP and a paginated attendee list, with capacity enforcement and duplicate-RSVP prevention that are correct under real concurrent load — verified with genuinely concurrent requests against real Postgres, not just sequential tests. Phase 8 added two further concurrency proofs: a cancel-vs-rejoin race and an event-deletion-vs-RSVP race, both confirmed to never violate their respective invariants.
 - Rate limiting (per-user where authenticated, stricter on auth endpoints), split liveness/readiness health checks, a `code` field on every error response, and a completed security/logging/error-handling audit.
-- A minimal, non-root, multi-stage production `Dockerfile`; a GitHub Actions CI pipeline that lints, builds, runs the full test suite against a real Postgres service container, and builds + runs the production image as a smoke test; and a documented Railway deployment path. See [Production Deployment](#production-deployment) below.
+- A minimal, non-root, multi-stage production `Dockerfile`; a GitHub Actions CI pipeline that lints, builds, runs the full test suite against a real Postgres service container, and builds + runs the production image as a smoke test; and a documented Render deployment path. See [Production Deployment](#production-deployment) below.
 - Phase 8: a full architecture/security/database/testing/operations audit against the entire codebase, a dedicated security regression suite (SQL-injection resistance, oversized-input rejection), a live readiness-under-real-database-outage check, a fixed dev-server crash (`nest-cli.json`'s `deleteOutDir` racing `nest start --watch`), and this README's Core Invariants table. Full findings: [`docs/specs/phase-8-audit.md`](docs/specs/phase-8-audit.md).
 - This is the complete backend feature set the assignment specifies, hardened, audited, and deployable. No new business features remain planned — the backend is ready for the React frontend phase.
 
@@ -80,7 +80,7 @@ See [`.env.example`](.env.example). All variables below are validated at startup
 | `THROTTLE_TTL` / `THROTTLE_LIMIT` | no | Default: `60` seconds / `100` requests. General API rate limit. |
 | `AUTH_THROTTLE_TTL` / `AUTH_THROTTLE_LIMIT` | no | Default: `60` seconds / `5` requests. Stricter limit for `/auth/register` and `/auth/login`. |
 
-`PORT` is read from the environment, never hardcoded — on Railway, the platform injects its own `PORT` value and the app listens on it automatically (`app.listen(port, '0.0.0.0')` in `src/main.ts`); locally it falls back to `.env`'s value (default `3000`).
+`PORT` is read from the environment, never hardcoded — the hosting platform (e.g. Render) injects its own `PORT` value and the app listens on it automatically (`app.listen(port, '0.0.0.0')` in `src/main.ts`); locally it falls back to `.env`'s value (default `3000`).
 
 ## Database
 
@@ -208,7 +208,7 @@ Full design writeup, including the isolation-level reasoning and every concurren
 
 Two separate endpoints, separate concerns:
 
-- **`GET /api/v1/health`** — liveness: *is the process alive?* No dependency checks at all — a container orchestrator (Docker/Railway/k8s) restarts the process if this fails, so it must never fail for a reason restarting wouldn't fix (like Postgres being briefly unreachable). Returns `{ status: 'ok', info: { name, environment, uptime } }`.
+- **`GET /api/v1/health`** — liveness: *is the process alive?* No dependency checks at all — a container orchestrator (Docker/Render/k8s) restarts the process if this fails, so it must never fail for a reason restarting wouldn't fix (like Postgres being briefly unreachable). Returns `{ status: 'ok', info: { name, environment, uptime } }`.
 - **`GET /api/v1/health/ready`** — readiness: *can this instance actually serve requests?* Pings Postgres with `SELECT 1` (cheapest possible check, not a real query). Returns `{ status: 'ok', database: 'up', info: {...} }`, or `503` if the database is unreachable — orchestrators use this to decide whether to route traffic to this instance, not whether to restart it.
 
 ## Rate Limiting
@@ -316,12 +316,12 @@ GitHub
 GitHub Actions (lint, build, full test suite, Docker build + runtime smoke test)
   |
   v
-Railway
-  +-- EventHub API container (this Dockerfile)
-  +-- Railway PostgreSQL (managed, DATABASE_URL supplied by Railway)
+Render
+  +-- EventHub API web service (this Dockerfile)
+  +-- Render PostgreSQL (managed, DATABASE_URL supplied by Render)
 ```
 
-The app has no idea it's running on Railway specifically — it only ever depends on standard environment variables (`DATABASE_URL`, `JWT_SECRET`, `PORT`, ...), so the same image runs identically on any host that can provide a PostgreSQL connection string.
+The app has no idea it's running on Render specifically — it only ever depends on standard environment variables (`DATABASE_URL`, `JWT_SECRET`, `PORT`, ...), so the same image runs identically on any host that can provide a PostgreSQL connection string.
 
 ### Node version
 
@@ -354,17 +354,17 @@ Instead, migrations run as an **explicit, separate step**, using the `prisma`/`t
 
 - **Local development:** `npm run prisma:migrate:dev` — creates and applies migrations from schema changes.
 - **CI (GitHub Actions):** `npx prisma migrate deploy` runs against a fresh, ephemeral Postgres service container before the test suite — proving the committed migrations apply cleanly from an empty database, not just that they worked once, historically, on someone's machine.
-- **Production (Railway):** before deploying a release that depends on a schema change, run `npx prisma migrate deploy` with `DATABASE_URL` pointed at the Railway Postgres instance (its public connection string, or from within Railway's own shell/one-off command runner) from a machine with this repository's devDependencies installed. The deployed API container itself never runs `prisma` — it only ever runs `node dist/main.js` against a schema it expects to already be current.
+- **Production (Render):** before deploying a release that depends on a schema change, run `npx prisma migrate deploy` with `DATABASE_URL` pointed at Render's External Database connection string, from a machine with this repository's devDependencies installed. The deployed API container itself never runs `prisma` — it only ever runs `node dist/main.js` against a schema it expects to already be current.
 
 **What happens on migration failure:** the command exits non-zero and nothing else runs — a failed migration never gets papered over. Because migration is decoupled from container start, a failed migration also can't crash-loop the running production container: whatever was serving traffic before keeps serving it, on the old (but still internally consistent) schema, until the migration is fixed and re-run. This is a stronger safety property than the chained-CMD design would have had.
 
-**Multi-replica caveat:** EventHub is currently a single-service, single-replica deployment, which is what makes "run `migrate deploy` once, as a separate step, before deploying" simple and sufficient. If this were ever scaled to multiple concurrent replicas, migrations must still run exactly once per release, not once per replica — Railway's dashboard exposes a way to configure a command that runs once before a new deployment's containers start serving traffic; consult Railway's current documentation for that feature's exact name and use it instead of relying on the container `CMD` if/when this project scales beyond one replica. No such infrastructure is built now, since it isn't a real requirement yet — see "No Premature Infrastructure" in this phase's brief.
+**Multi-replica caveat:** EventHub is currently a single-service, single-replica deployment, which is what makes "run `migrate deploy` once, as a separate step, before deploying" simple and sufficient. If this were ever scaled to multiple concurrent replicas, migrations must still run exactly once per release, not once per replica — most PaaS platforms (including Render, via its "Pre-Deploy Command" setting) expose a way to run a command once before new replicas start serving traffic; use that instead of relying on the container `CMD` if/when this project scales beyond one replica. No such infrastructure is built now, since it isn't a real requirement yet — see "No Premature Infrastructure" in this phase's brief.
 
 ### Rollback Considerations
 
 No automated rollback system is implemented — deliberately, per this phase's "no premature infrastructure" constraint. What's true regardless:
 
-- **Application rollback** (redeploying a previous image) is simple and safe on its own — Railway keeps prior deployments.
+- **Application rollback** (redeploying a previous image) is simple and safe on its own — Render keeps a history of prior deploys you can roll back to from the dashboard.
 - **Database rollback is not the same operation**, and is not always possible or even desirable. Prisma Migrate has no built-in "undo" for an applied migration; reversing one means writing and applying a new, forward-only migration that undoes the schema change (which can be lossy — e.g. a dropped column's data is gone).
 - **The dangerous combination:** rolling back the application to a previous version *after* a new migration has already applied. The old code may not understand the new schema (a new NOT NULL column it never writes, a renamed column it still references, etc.). For this reason, an application rollback should only be paired with a matching database state — either the schema hasn't changed since the version being rolled back to, or the rollback also includes a compensating migration. This is a judgment call made at rollback time, not something to pre-build automation for at this project's size.
 
@@ -372,9 +372,9 @@ No automated rollback system is implemented — deliberately, per this phase's "
 
 Swagger UI stays available at `/api/docs` in every environment, including production — a deliberate, not accidental, choice: this assignment explicitly asks for API documentation, and EventHub has no sensitive internal detail exposed by the OpenAPI schema itself (no internal architecture, no credentials — just documented public request/response shapes for an API that's already meant to be called by a separate frontend). If a future deployment target genuinely needs Swagger gated (e.g. behind auth, or disabled entirely), that would be a `NODE_ENV`-driven conditional around `setupSwagger()` in `src/main.ts` — not implemented now because it isn't a real requirement yet.
 
-### Health Endpoint for Railway
+### Health Endpoint for Deployment
 
-`railway.json` points Railway's health check at **`/api/v1/health`** (liveness, not readiness) — deliberately. Railway's health check gates whether a deployment is considered successful and whether the container gets restarted; pointing it at liveness means a transient Postgres blip doesn't cause Railway to kill and restart an otherwise-healthy API process (that's exactly the liveness/readiness distinction from Phase 6 — see Health above). `/api/v1/health/ready` exists for anything that specifically needs to confirm database connectivity (e.g. a load balancer deciding whether to route traffic, or this repository's own Docker `HEALTHCHECK` and CI smoke test).
+The hosting platform's health check should point at **`/api/v1/health`** (liveness, not readiness) — deliberately, and this is exactly what the Render deployment guide configures. A platform's health check gates whether a deployment is considered successful and whether the container gets restarted; pointing it at liveness means a transient Postgres blip doesn't cause the platform to kill and restart an otherwise-healthy API process (that's exactly the liveness/readiness distinction from Phase 6 — see Health above). `/api/v1/health/ready` exists for anything that specifically needs to confirm database connectivity (e.g. a load balancer deciding whether to route traffic, or this repository's own Docker `HEALTHCHECK` and CI smoke test).
 
 ### Local Docker
 
@@ -396,23 +396,23 @@ Migrations must already be applied to the target database before starting the co
 
 The image is a non-root, multi-stage Debian-slim build (not Alpine — Prisma's native/engine binaries and argon2's prebuilt bindings have a history of friction with musl libc; a few tens of MB of extra image size buys real reliability). It ships a dependency-free `HEALTHCHECK` (Node's built-in `fetch`, since the slim base has no `curl`) against `/api/v1/health`.
 
-### Railway Deployment Guide
+### Render Deployment Guide
 
-For a complete, click-by-click walkthrough (including how GitHub Actions fits in, generating `JWT_SECRET`, and troubleshooting), see **[`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md)**. Railway requires a paid plan once its trial usage credit runs out — if you want to stay on a genuinely free tier instead, see **[`docs/RENDER_DEPLOYMENT_GUIDE.md`](docs/RENDER_DEPLOYMENT_GUIDE.md)** (same Docker-based deploy, no card required, with the free-tier trade-offs — cold starts, database expiry — stated plainly). Condensed Railway version below:
+For a complete, click-by-click walkthrough (including how GitHub Actions fits in, generating `JWT_SECRET`, and troubleshooting), see **[`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md)**. Render's free tier requires no payment method — it does have real trade-offs (the service sleeps after ~15 minutes idle with a slow cold-start on the next request, and the free database expires after a limited period), both stated plainly in the full guide. Condensed version:
 
-1. Create a new Railway project.
-2. Add a PostgreSQL database to the project (Railway provisions it and exposes `DATABASE_URL` to other services in the project automatically).
-3. Add a new service, sourced from this GitHub repository. **Set the service's Root Directory to `backend`** (Railway service Settings → Source → Root Directory) — this is a monorepo, so Railway needs to know the API lives in `backend/`, not the repo root. With that set, Railway finds `Dockerfile` and `railway.json` inside `backend/` and builds from there automatically; no further build configuration is required.
-4. Configure the service's environment variables: `NODE_ENV=production`, `JWT_SECRET` (a real, random ≥32-character value — never the `.env.example` placeholder, which the app refuses to boot with in production), `JWT_EXPIRES_IN`, `FRONTEND_URL` (your deployed frontend's origin), and optionally the `THROTTLE_*` overrides. Reference the Postgres service's `DATABASE_URL` rather than retyping it. Do **not** set `PORT` — Railway supplies it.
-5. Before the first deploy (and before any future deploy that includes a schema change), run `npx prisma migrate deploy` with `DATABASE_URL` set to the Railway Postgres instance's connection string, from a machine with this repo's devDependencies installed (`npm ci` first) — see "Database Migration Strategy" above.
+1. Create a Render account (free, no card required) and connect your GitHub account.
+2. Create a free PostgreSQL database on Render — note its Internal and External connection strings.
+3. Create a new Web Service, sourced from this GitHub repository. **Set the service's Root Directory to `backend`** — this is a monorepo, so Render needs to know the API lives in `backend/`, not the repo root. With that set, Render detects `backend/Dockerfile` automatically; no build command configuration is required.
+4. Configure the service's environment variables: `NODE_ENV=production`, `DATABASE_URL` (the Postgres service's Internal connection string), `JWT_SECRET` (a real, random ≥32-character value — never the `.env.example` placeholder, which the app refuses to boot with in production), `JWT_EXPIRES_IN`, `FRONTEND_URL` (your deployed frontend's origin), and optionally the `THROTTLE_*` overrides. Do **not** set `PORT` — Render supplies it. Set **Health Check Path** to `/api/v1/health`.
+5. Before the first deploy (and before any future deploy that includes a schema change), run `npx prisma migrate deploy` with `DATABASE_URL` set to the Postgres instance's **External** connection string, from a machine with this repo's devDependencies installed (`npm ci` first) — see "Database Migration Strategy" above.
 6. Deploy the service.
-7. Once deployed, verify `https://<your-service>.up.railway.app/api/v1/health` and `/api/v1/health/ready` both return `200`.
-8. Verify Swagger is reachable at `https://<your-service>.up.railway.app/api/docs`.
+7. Once deployed, verify `https://<your-service>.onrender.com/api/v1/health` and `/api/v1/health/ready` both return `200` (the first request may be slow if the service was asleep — that's the free-tier cold start, not a failure).
+8. Verify Swagger is reachable at `https://<your-service>.onrender.com/api/docs`.
 9. Verify authentication: `POST /api/v1/auth/register`, then `POST /api/v1/auth/login`, and confirm a bearer token comes back.
 10. Verify event creation: `POST /api/v1/events` with that token, then confirm it appears in `GET /api/v1/events`.
 11. Verify RSVP: `POST /api/v1/events/:id/rsvp`, then `GET /api/v1/events/:id/attendees` to confirm it's recorded.
 
-No real secrets appear above — every value is either a placeholder or something Railway generates/injects itself.
+No real secrets appear above — every value is either a placeholder or something Render generates/injects itself.
 
 ## Architecture & Decisions
 
@@ -436,11 +436,8 @@ Full write-ups live in [`docs/specs/`](docs/specs), updated at the end of each p
 - Search is a plain case-insensitive `contains` query (no index) — fine at this project's scale; a `pg_trgm` GIN index is the natural next step if search ever becomes a real bottleneck, deliberately not added now.
 - Attendee email is currently visible to any authenticated user who views an event's attendee list (not just the event creator) — a deliberate, documented choice for this assignment's scope (`docs/specs/phase-5-rsvp.md`); a real product would likely want to restrict this further.
 - `npm run test:e2e`, `npm run test:db`, and `npm run test:throttle` require a running local Postgres (`docker compose up -d`); they are not hermetic like `npm test`.
-- 4 high-severity `npm audit` findings, all transitive through the `prisma` CLI's own `@prisma/config` dependency — confirmed dev-only, not present in the production dependency tree (Phase 7); still unresolved since the only fix is a Prisma v6 downgrade.
-- No image registry push in CI — Railway builds its own image directly from the Dockerfile, so there's nothing to push to yet (Phase 7).
-- No automated rollback tooling — a documented, deliberate choice (Phase 7's "Rollback Considerations"), not an oversight.
-- CI (`.github/workflows/ci.yml`) was validated by running the equivalent commands locally, matching what the workflow does step for step — it has not been executed on GitHub's own Actions runners, since doing so requires a push to a GitHub-hosted remote, which is outside this phase's scope. Railway deployment itself was likewise not actually performed — only documented and locally simulated via Docker (build, run, migrate, full API flow, SIGTERM shutdown, all against real PostgreSQL). Both should be verified on the first real push/deploy.
-- Migrations are a manual/CI-driven step against the target database (`prisma migrate deploy`), not automated as part of the Railway deploy itself — a deliberate choice to keep the runtime image lean (see "Database Migration Strategy" above); it does mean a human or a CI job must remember to run it before a schema-changing deploy.
+- 4 high-severity `npm audit` findings, all transitive through the `prisma` CLI's own `@prisma/config` dependency (`deepmerge-ts`, `mysql2`) — confirmed dev-only, not present in the production dependency tree at all (see `docs/specs/phase-7-deployment.md` for the full investigation); fixing them requires downgrading to Prisma 6, which is a larger regression than the vulnerabilities themselves warrant.
+- No image registry push in CI — the hosting platform builds its own image directly from the Dockerfile at deploy time, so there's nothing to push to yet.
 - No automated rollback tooling — application rollback and the database-schema-compatibility judgment call it requires are both documented (see "Rollback Considerations" above) but not automated, per this phase's "no premature infrastructure" constraint.
-- CI's Docker job builds and smoke-tests the image but does not push it to a registry — Railway builds its own image directly from the Dockerfile at deploy time, so there's nothing to push to yet.
-- 4 high-severity `npm audit` findings, all transitive through the `prisma` CLI's own `@prisma/config` dependency (`deepmerge-ts`, `mysql2`) — dev-tooling-only, not present in the production dependency tree at all (see Phase 7 report / `docs/specs/phase-7-deployment.md` for the full investigation); fixing them requires downgrading to Prisma 6, which is a larger regression than the vulnerabilities themselves warrant.
+- Migrations are a manual/CI-driven step against the target database (`prisma migrate deploy`), not automated as part of the platform's deploy itself — a deliberate choice to keep the runtime image lean (see "Database Migration Strategy" above); it does mean a human or a CI job must remember to run it before a schema-changing deploy.
+- CI (`.github/workflows/ci.yml`) has been run for real on GitHub's own Actions runners (not just simulated locally) as of the first push to GitHub. An actual deployment to Render has not yet been performed as of this writing — only documented and locally simulated via Docker (build, run, migrate, full API flow, SIGTERM shutdown, all against real PostgreSQL). Verify it on the first real deploy.

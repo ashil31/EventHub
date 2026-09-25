@@ -50,7 +50,7 @@ async function bootstrap(): Promise<void> {
 
   app.enableShutdownHooks();
 
-  // Explicit host bind: containers (Docker/Railway) route traffic to the
+  // Explicit host bind: containers (Docker/Render) route traffic to the
   // container's network interface, not just loopback, so the app must
   // listen on all interfaces rather than relying on Node's default.
   const port = configService.get<number>('app.port', 3000);
@@ -101,7 +101,7 @@ function setupSwagger(app: NestExpressApplication): void {
 // PostgreSQL is the sole source of truth for this API — an app that
 // "starts" without a database connection isn't actually functional. Fail
 // fast and let the process exit non-zero rather than serve a permanently
-// degraded instance; container orchestration (Docker/Railway/k8s) is built
+// degraded instance; container orchestration (Docker/Render/k8s) is built
 // to restart on a crash, which is simpler and clearer than a bespoke
 // retry/backoff loop here.
 bootstrap().catch((error: unknown) => {

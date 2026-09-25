@@ -1,7 +1,7 @@
 name: CI
 
 # Runs on every PR and every push to main — the two points where broken
-# code could either merge or reach the branch Railway deploys from.
+# code could either merge or reach the branch the hosting platform deploys from.
 on:
   pull_request:
   push:
@@ -118,7 +118,7 @@ jobs:
   # Proves the production Dockerfile actually builds and the resulting
   # image actually runs: migrate, boot, pass liveness + readiness, serve
   # a real request, shut down cleanly on SIGTERM. This is the same
-  # multi-stage Dockerfile Railway builds from — nothing pushed anywhere,
+  # multi-stage Dockerfile the hosting platform builds from — nothing pushed anywhere,
   # purely a local build-and-run smoke test.
   # ---------------------------------------------------------------------
   docker:
