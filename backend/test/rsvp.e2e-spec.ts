@@ -683,5 +683,91 @@ describe('RSVP (e2e)', () => {
       // "won" the race:
       expect(finalAttendeeCount).toBeLessThanOrEqual(finalEvent.capacity);
     }, 30000);
+
+    it('cancelling an RSVP racing a concurrent rejoin never leaves duplicate attendee rows (Phase 8)', async () => {
+      const owner = await createUser('conc-cancelrace-owner');
+      const user = await createUser('conc-cancelrace-user');
+
+      // A single concurrent pair might not exercise every interleaving —
+      // Node's event loop and the connection pool can happen to serialize
+      // two "concurrent" requests anyway. Repeating across independent
+      // events increases confidence the invariant holds regardless of
+      // which order Postgres actually processes the two requests in.
+      for (let i = 0; i < 10; i++) {
+        const event = await createEvent(owner.token, { capacity: 10 });
+        await request(httpServer)
+          .post(`/api/v1/events/${event.id}/rsvp`)
+          .set('Authorization', `Bearer ${user.token}`);
+
+        const [cancelResponse, rejoinResponse] = await Promise.all([
+          request(httpServer)
+            .delete(`/api/v1/events/${event.id}/rsvp`)
+            .set('Authorization', `Bearer ${user.token}`),
+          request(httpServer)
+            .post(`/api/v1/events/${event.id}/rsvp`)
+            .set('Authorization', `Bearer ${user.token}`),
+        ]);
+
+        // Either response can legitimately land in more than one state
+        // depending on timing (204 or 404 for cancel; 201 or 409 for
+        // rejoin) — the API intentionally permits either outcome; this
+        // test does not assume a winner.
+        expect([204, 404]).toContain(cancelResponse.status);
+        expect([201, 409]).toContain(rejoinResponse.status);
+
+        // The invariant that actually matters, regardless of ordering:
+        // never more than one row for this (event, user) pair. The
+        // UNIQUE(eventId, userId) constraint is what guarantees this at
+        // the database level even under a genuine race.
+        const dbCount = await prisma.eventAttendee.count({
+          where: { eventId: event.id, userId: user.userId },
+        });
+        expect(dbCount).toBeLessThanOrEqual(1);
+      }
+    }, 30000);
+
+    it('deleting an event racing a concurrent RSVP never leaves an orphaned attendee row (Phase 8)', async () => {
+      const owner = await createUser('conc-delrace-owner');
+
+      for (let i = 0; i < 10; i++) {
+        const event = await createEvent(owner.token, { capacity: 10 });
+        const joiner = await createUser(`conc-delrace-joiner-${i}`);
+
+        const [deleteResponse, rsvpResponse] = await Promise.all([
+          request(httpServer)
+            .delete(`/api/v1/events/${event.id}`)
+            .set('Authorization', `Bearer ${owner.token}`),
+          request(httpServer)
+            .post(`/api/v1/events/${event.id}/rsvp`)
+            .set('Authorization', `Bearer ${joiner.token}`),
+        ]);
+
+        // The event is always the owner's own, valid event — deletion
+        // itself never fails; Postgres's row lock on the events row just
+        // makes DELETE wait its turn against a concurrent RSVP
+        // transaction that already holds `SELECT ... FOR UPDATE` on the
+        // same row, rather than the two operations racing unsafely.
+        expect(deleteResponse.status).toBe(204);
+        // Whichever the database serialized first: either the RSVP
+        // transaction committed before the delete could acquire the row
+        // (in which case ON DELETE CASCADE removes the just-created
+        // attendee row as part of the delete), or the delete removed the
+        // event before the RSVP transaction's row lock could even be
+        // acquired (in which case RSVP correctly reports "not found").
+        expect([201, 404]).toContain(rsvpResponse.status);
+
+        const eventStillExists = await prisma.event.findUnique({
+          where: { id: event.id },
+        });
+        expect(eventStillExists).toBeNull();
+
+        // The actual invariant: no orphaned attendee row survives,
+        // regardless of which request the database processed first.
+        const orphanedAttendees = await prisma.eventAttendee.count({
+          where: { eventId: event.id },
+        });
+        expect(orphanedAttendees).toBe(0);
+      }
+    }, 30000);
   });
 });

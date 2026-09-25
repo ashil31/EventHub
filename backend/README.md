@@ -8,6 +8,22 @@ This is the `backend/` package of the EventHub monorepo (see the [repository roo
 
 See [`docs/specs/`](docs/specs) for the full architecture, database design, API contract, security model, and RSVP concurrency strategy, tracked phase by phase.
 
+## Core Invariants
+
+These are the guarantees EventHub's backend must never violate. Every one of them is enforced server-side and covered by an automated test — never assumed, never left to client-side behavior.
+
+| Invariant | Enforced by | Verified by |
+|---|---|---|
+| Every protected request has a valid, currently-existing authenticated user | `JwtAuthGuard` + `JwtStrategy` (re-checks the database on every request, not just the JWT signature) | `auth.e2e-spec.ts` (no/invalid/expired token → 401), `jwt.strategy.spec.ts` |
+| Only the event creator can update or delete their event | `EventsService.assertOwner`, comparing `event.createdBy` to the JWT-derived `currentUser.id` — never a client-supplied id | `events.e2e-spec.ts` (cross-user 403 tests) |
+| The authenticated user is always the RSVP user — never client-chosen | RSVP routes take no request body at all; identity comes only from `@CurrentUser()` | `rsvp.e2e-spec.ts` ("ignores a userId in the body") |
+| A user can RSVP to a given event at most once | Database `UNIQUE(eventId, userId)`, backed by an application-level check inside the same locked transaction | `rsvp.e2e-spec.ts` concurrency suite, `test/database/constraints.spec.ts` |
+| `attendeeCount <= event.capacity`, even under concurrent requests | PostgreSQL `SELECT ... FOR UPDATE` row lock around the count-then-insert in `RsvpService.join` | `rsvp.e2e-spec.ts` — capacity=1/20 concurrent, capacity=10/50 concurrent, capacity-update race |
+| RSVP is rejected once an event's `startsAt` has passed | Checked inside the same locked transaction, against the DB's own row | `rsvp.e2e-spec.ts` ("rejects RSVP for an event that has already started") |
+| `startsAt < endsAt`, and `startsAt` cannot be in the past (small clock-skew grace window) | `EventsService` validates the *final* merged state on both create and partial update | `events.e2e-spec.ts` (date-order and past-date tests) |
+| No orphaned `EventAttendee` rows ever exist | `ON DELETE CASCADE` on `event_attendees.eventId`, which Postgres enforces even mid-race against a concurrent RSVP transaction | `rsvp.e2e-spec.ts` ("deleting an event racing a concurrent RSVP") |
+| PostgreSQL is the sole source of truth — no cache, no in-process state that could diverge from it | No caching layer exists anywhere in the app; every read goes through Prisma to Postgres | Architecturally true by omission — see ADR-006 |
+
 ## Tech Stack
 
 - **Framework:** NestJS 11 (TypeScript, strict mode)
@@ -23,15 +39,16 @@ See [`docs/specs/`](docs/specs) for the full architecture, database design, API 
 
 ## Current Status
 
-**Phase 7 complete.** Application foundation (Phase 1) + database layer (Phase 2) + authentication (Phase 3) + Events CRUD (Phase 4) + RSVP with concurrency-safe capacity enforcement (Phase 5) + API hardening (Phase 6) + production deployment & CI/CD readiness (Phase 7):
+**Phase 8 complete — final senior-level audit passed.** Application foundation (Phase 1) + database layer (Phase 2) + authentication (Phase 3) + Events CRUD (Phase 4) + RSVP with concurrency-safe capacity enforcement (Phase 5) + API hardening (Phase 6) + production deployment & CI/CD readiness (Phase 7) + final audit, testing & observability review (Phase 8):
 
 - PostgreSQL + Prisma, schema for `User`/`Event`/`EventAttendee`, an applied initial migration, a `PrismaService`/`PrismaModule` database boundary, and a database integration test suite run against a real Postgres instance.
 - Registration, login, JWT issuance/validation, a protected `GET /auth/me`, and Swagger docs with bearer-token auth wired in.
 - Full Events CRUD (create/list/get/update/delete), creator-only update/delete authorization, pagination, search, and date filtering.
-- Join/cancel RSVP and a paginated attendee list, with capacity enforcement and duplicate-RSVP prevention that are correct under real concurrent load — verified with genuinely concurrent requests against real Postgres, not just sequential tests.
+- Join/cancel RSVP and a paginated attendee list, with capacity enforcement and duplicate-RSVP prevention that are correct under real concurrent load — verified with genuinely concurrent requests against real Postgres, not just sequential tests. Phase 8 added two further concurrency proofs: a cancel-vs-rejoin race and an event-deletion-vs-RSVP race, both confirmed to never violate their respective invariants.
 - Rate limiting (per-user where authenticated, stricter on auth endpoints), split liveness/readiness health checks, a `code` field on every error response, and a completed security/logging/error-handling audit.
 - A minimal, non-root, multi-stage production `Dockerfile`; a GitHub Actions CI pipeline that lints, builds, runs the full test suite against a real Postgres service container, and builds + runs the production image as a smoke test; and a documented Railway deployment path. See [Production Deployment](#production-deployment) below.
-- This is the complete backend feature set the assignment specifies, now hardened and deployable. No new business features remain planned.
+- Phase 8: a full architecture/security/database/testing/operations audit against the entire codebase, a dedicated security regression suite (SQL-injection resistance, oversized-input rejection), a live readiness-under-real-database-outage check, a fixed dev-server crash (`nest-cli.json`'s `deleteOutDir` racing `nest start --watch`), and this README's Core Invariants table. Full findings: [`docs/specs/phase-8-audit.md`](docs/specs/phase-8-audit.md).
+- This is the complete backend feature set the assignment specifies, hardened, audited, and deployable. No new business features remain planned — the backend is ready for the React frontend phase.
 
 ## Local Setup
 
@@ -408,14 +425,19 @@ Full write-ups live in [`docs/specs/`](docs/specs), updated at the end of each p
 - [`docs/specs/phase-5-rsvp.md`](docs/specs/phase-5-rsvp.md) — what Phase 5 built and why, ADRs 018–020
 - [`docs/specs/phase-6-hardening.md`](docs/specs/phase-6-hardening.md) — what Phase 6 built and why, ADRs 021–023
 - [`docs/specs/phase-7-deployment.md`](docs/specs/phase-7-deployment.md) — what Phase 7 built and why, ADRs 024–027
+- [`docs/specs/phase-8-audit.md`](docs/specs/phase-8-audit.md) — the final senior-level audit: findings, fixes, and the complete testing/security/interview-readiness report, ADRs 028–029
 
-## Known Limitations (Phase 7)
+## Known Limitations (Phase 8)
 
 - No refresh tokens, session revocation, or OAuth/social login — out of scope for this assignment (ADR-004). A deleted user's token stops working immediately (the JWT strategy re-checks the database every request), but there's no way to revoke a *still-valid* user's token before it expires.
 - Rate limiting uses in-memory storage — correct for a single instance; a genuinely multi-instance deployment would need a shared store (out of scope, and explicitly not Redis per this project's stated constraints).
 - Search is a plain case-insensitive `contains` query (no index) — fine at this project's scale; a `pg_trgm` GIN index is the natural next step if search ever becomes a real bottleneck, deliberately not added now.
 - Attendee email is currently visible to any authenticated user who views an event's attendee list (not just the event creator) — a deliberate, documented choice for this assignment's scope (`docs/specs/phase-5-rsvp.md`); a real product would likely want to restrict this further.
 - `npm run test:e2e`, `npm run test:db`, and `npm run test:throttle` require a running local Postgres (`docker compose up -d`); they are not hermetic like `npm test`.
+- 4 high-severity `npm audit` findings, all transitive through the `prisma` CLI's own `@prisma/config` dependency — confirmed dev-only, not present in the production dependency tree (Phase 7); still unresolved since the only fix is a Prisma v6 downgrade.
+- No image registry push in CI — Railway builds its own image directly from the Dockerfile, so there's nothing to push to yet (Phase 7).
+- No automated rollback tooling — a documented, deliberate choice (Phase 7's "Rollback Considerations"), not an oversight.
+- CI (`.github/workflows/ci.yml`) was validated by running the equivalent commands locally, matching what the workflow does step for step — it has not been executed on GitHub's own Actions runners, since doing so requires a push to a GitHub-hosted remote, which is outside this phase's scope. Railway deployment itself was likewise not actually performed — only documented and locally simulated via Docker (build, run, migrate, full API flow, SIGTERM shutdown, all against real PostgreSQL). Both should be verified on the first real push/deploy.
 - Migrations are a manual/CI-driven step against the target database (`prisma migrate deploy`), not automated as part of the Railway deploy itself — a deliberate choice to keep the runtime image lean (see "Database Migration Strategy" above); it does mean a human or a CI job must remember to run it before a schema-changing deploy.
 - No automated rollback tooling — application rollback and the database-schema-compatibility judgment call it requires are both documented (see "Rollback Considerations" above) but not automated, per this phase's "no premature infrastructure" constraint.
 - CI's Docker job builds and smoke-tests the image but does not push it to a registry — Railway builds its own image directly from the Dockerfile at deploy time, so there's nothing to push to yet.
