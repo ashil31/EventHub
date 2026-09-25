@@ -117,23 +117,23 @@ Deliberately **not** doing `components/EventList/EventCard/EventButton/EventWrap
 
 ## C. State Ownership
 
-| State | Owner |
-|---|---|
-| Events list | TanStack Query |
-| Event detail | TanStack Query |
-| Attendees list | TanStack Query |
-| Current user (`auth.me`) | TanStack Query |
-| Login form fields | React Hook Form |
-| Register form fields | React Hook Form |
-| Create/edit event form fields | React Hook Form |
-| Search text | URL (`?search=`) |
-| Page number | URL (`?page=`) |
-| Date filters (`from`/`to`) | URL (`?from=&to=`) |
-| Access token (raw string) | Module-level store (`lib/api/auth-token.ts`), outside React — see § G |
-| Modal/dialog open | React `useState`, local to the component that owns the dialog |
-| Mobile nav open | React `useState`, local to `AppShell` |
-| RSVP button pending/optimistic-disable | TanStack Query mutation state (`isPending`), not separate `useState` |
-| Delete-confirmation dialog | React `useState`, local to the triggering component |
+| State                                  | Owner                                                                 |
+| -------------------------------------- | --------------------------------------------------------------------- |
+| Events list                            | TanStack Query                                                        |
+| Event detail                           | TanStack Query                                                        |
+| Attendees list                         | TanStack Query                                                        |
+| Current user (`auth.me`)               | TanStack Query                                                        |
+| Login form fields                      | React Hook Form                                                       |
+| Register form fields                   | React Hook Form                                                       |
+| Create/edit event form fields          | React Hook Form                                                       |
+| Search text                            | URL (`?search=`)                                                      |
+| Page number                            | URL (`?page=`)                                                        |
+| Date filters (`from`/`to`)             | URL (`?from=&to=`)                                                    |
+| Access token (raw string)              | Module-level store (`lib/api/auth-token.ts`), outside React — see § G |
+| Modal/dialog open                      | React `useState`, local to the component that owns the dialog         |
+| Mobile nav open                        | React `useState`, local to `AppShell`                                 |
+| RSVP button pending/optimistic-disable | TanStack Query mutation state (`isPending`), not separate `useState`  |
+| Delete-confirmation dialog             | React `useState`, local to the triggering component                   |
 
 ## D. TanStack Query Strategy
 
@@ -152,7 +152,8 @@ export const eventKeys = {
 // features/rsvp/keys.ts
 export const attendeeKeys = {
   all: ['attendees'] as const,
-  list: (eventId: string, page: number) => [...attendeeKeys.all, eventId, page] as const,
+  list: (eventId: string, page: number) =>
+    [...attendeeKeys.all, eventId, page] as const,
 };
 
 // features/auth/keys.ts
@@ -165,13 +166,13 @@ export const authKeys = { me: ['auth', 'me'] as const };
 
 **Mutations and invalidation** (targeted, never `queryClient.invalidateQueries()` with no key — § 7 of the brief):
 
-| Mutation | Effect |
-|---|---|
-| Create event | Invalidate `eventKeys.lists()` (new item may appear in any filtered list) |
-| Update event | `setQueryData(eventKeys.detail(id), response)` with the mutation's response (backend returns the full updated entity), then invalidate `eventKeys.lists()` |
-| Delete event | Remove `eventKeys.detail(id)` via `removeQueries`, invalidate `eventKeys.lists()` |
-| RSVP (join) | Backend's `RsvpResponseDto` carries `attendeeCount`/`availableSpots` but not a full `EventResponseDto`, so it can't replace the event-detail cache directly — invalidate `eventKeys.detail(id)` and `attendeeKeys.list(id, *)` (prefix invalidation via `predicate`, since the attendee list is paginated) |
-| Cancel RSVP | `DELETE /events/:id/rsvp` returns `204 No Content` (verified against `rsvp.controller.ts:57-71` — no body to merge), so this is invalidation-only: `eventKeys.detail(id)` + `attendeeKeys.list(id, *)` |
+| Mutation     | Effect                                                                                                                                                                                                                                                                                                     |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Create event | Invalidate `eventKeys.lists()` (new item may appear in any filtered list)                                                                                                                                                                                                                                  |
+| Update event | `setQueryData(eventKeys.detail(id), response)` with the mutation's response (backend returns the full updated entity), then invalidate `eventKeys.lists()`                                                                                                                                                 |
+| Delete event | Remove `eventKeys.detail(id)` via `removeQueries`, invalidate `eventKeys.lists()`                                                                                                                                                                                                                          |
+| RSVP (join)  | Backend's `RsvpResponseDto` carries `attendeeCount`/`availableSpots` but not a full `EventResponseDto`, so it can't replace the event-detail cache directly — invalidate `eventKeys.detail(id)` and `attendeeKeys.list(id, *)` (prefix invalidation via `predicate`, since the attendee list is paginated) |
+| Cancel RSVP  | `DELETE /events/:id/rsvp` returns `204 No Content` (verified against `rsvp.controller.ts:57-71` — no body to merge), so this is invalidation-only: `eventKeys.detail(id)` + `attendeeKeys.list(id, *)`                                                                                                     |
 
 No normalized global cache, no manual cross-entity syncing — invalidation is the mechanism, `setQueryData` only where a mutation response is provably the authoritative full entity (update-event only).
 
@@ -244,10 +245,10 @@ Not implemented this phase — design only, per § 12 of the brief.
 
 **Token storage — the one piece that isn't pure server state**, because the backend has no cookie-based session and no refresh-token endpoint (confirmed: `auth.controller`/`login-response.dto.ts` return only `accessToken` + `expiresIn` in the JSON body, no `Set-Cookie`, no `/auth/refresh`). The realistic options and the trade-off:
 
-| Option | Trade-off |
-|---|---|
-| In-memory only (module variable, lost on refresh) | Safest against XSS token theft, but the user is logged out on every page reload — poor UX for a short-lived (`JWT_EXPIRES_IN`, e.g. 15m) token with no silent-refresh mechanism to recover it. |
-| `localStorage` (chosen) | Survives reload; standard practice for JWT-in-body APIs without cookie support. Accepted trade-off: vulnerable to token theft via XSS. Mitigated by: React's default JSX escaping (no `dangerouslySetInnerHTML` anywhere in this contract), CSP via the backend's `helmet()`, and the token's own short lifetime limiting the exposure window. |
+| Option                                            | Trade-off                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| In-memory only (module variable, lost on refresh) | Safest against XSS token theft, but the user is logged out on every page reload — poor UX for a short-lived (`JWT_EXPIRES_IN`, e.g. 15m) token with no silent-refresh mechanism to recover it.                                                                                                                                                 |
+| `localStorage` (chosen)                           | Survives reload; standard practice for JWT-in-body APIs without cookie support. Accepted trade-off: vulnerable to token theft via XSS. Mitigated by: React's default JSX escaping (no `dangerouslySetInnerHTML` anywhere in this contract), CSP via the backend's `helmet()`, and the token's own short lifetime limiting the exposure window. |
 
 Chosen: `localStorage`, isolated behind `lib/api/auth-token.ts` (a plain module, not a React context) so `client.ts` can read it synchronously on every request without a hook, and so swapping the storage strategy later (e.g. if the backend adds httpOnly-cookie sessions) touches one file. On app boot, `AppProviders` reads a stored token, seeds it into `auth-token.ts`, and lets `useCurrentUser()` validate it against `GET /auth/me` — an invalid/expired token 401s, the query's `onError`-equivalent (`queryClient` global error handling, § D) clears the stored token, and route protection reacts to `status !== 'success'`.
 
@@ -261,17 +262,19 @@ React Hook Form owns field state/dirty/touched/submission; Zod owns the validati
 
 ```ts
 // features/events/schemas.ts
-export const createEventSchema = z.object({
-  title: z.string().trim().min(1).max(200),
-  description: z.string().max(2000).optional(),
-  location: z.string().trim().min(1).max(200),
-  startsAt: z.string().datetime(),
-  endsAt: z.string().datetime(),
-  capacity: z.number().int().positive(),
-}).refine(d => new Date(d.endsAt) > new Date(d.startsAt), {
-  message: 'End time must be after start time',
-  path: ['endsAt'],
-});
+export const createEventSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200),
+    description: z.string().max(2000).optional(),
+    location: z.string().trim().min(1).max(200),
+    startsAt: z.string().datetime(),
+    endsAt: z.string().datetime(),
+    capacity: z.number().int().positive(),
+  })
+  .refine((d) => new Date(d.endsAt) > new Date(d.startsAt), {
+    message: 'End time must be after start time',
+    path: ['endsAt'],
+  });
 
 export const updateEventSchema = createEventSchema.partial();
 ```
@@ -286,38 +289,39 @@ No field is ever managed with a standalone `useState` in a form component — `r
 
 Already covered in detail above (top of this document). Summary of the rules with the most concrete bearing on EventHub, restated against this specific app:
 
-| Rule | Applied as |
-|---|---|
-| `async-parallel` | Event detail page's event + attendees queries run as sibling `useQuery` calls, not chained |
-| `bundle-barrel-imports` | Icon imports are direct/named, never a wildcard package import |
-| `bundle-dynamic-imports` | Every route in `router.tsx` is `React.lazy` |
-| `client-swr-dedup` (principle) | TanStack Query's cache is the dedup mechanism — this is why it's mandatory, not optional |
-| `rerender-derived-state-no-effect` | "Is full" / "spots left" derived inline from query data during render |
-| `rerender-no-inline-components` | No component defined inside another component's body (e.g. `EventList` maps to `<EventCard>`, never defines it inline) |
-| `rerender-functional-setstate` | Local `useState` updaters use the functional form where the next value depends on the previous |
-| `rendering-conditional-render` | Ternaries, not `&&`, for loading/error/empty/success branches |
-| `js-early-exit` | `client.ts`/validation helpers return/throw early |
-| `advanced-init-once` | `QueryClient` and router constructed once at module scope |
+| Rule                               | Applied as                                                                                                             |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `async-parallel`                   | Event detail page's event + attendees queries run as sibling `useQuery` calls, not chained                             |
+| `bundle-barrel-imports`            | Icon imports are direct/named, never a wildcard package import                                                         |
+| `bundle-dynamic-imports`           | Every route in `router.tsx` is `React.lazy`                                                                            |
+| `client-swr-dedup` (principle)     | TanStack Query's cache is the dedup mechanism — this is why it's mandatory, not optional                               |
+| `rerender-derived-state-no-effect` | "Is full" / "spots left" derived inline from query data during render                                                  |
+| `rerender-no-inline-components`    | No component defined inside another component's body (e.g. `EventList` maps to `<EventCard>`, never defines it inline) |
+| `rerender-functional-setstate`     | Local `useState` updaters use the functional form where the next value depends on the previous                         |
+| `rendering-conditional-render`     | Ternaries, not `&&`, for loading/error/empty/success branches                                                          |
+| `js-early-exit`                    | `client.ts`/validation helpers return/throw early                                                                      |
+| `advanced-init-once`               | `QueryClient` and router constructed once at module scope                                                              |
 
 ## J. NestJS ↔ React Integration
 
 Full endpoint mapping, verified directly against the backend controllers/DTOs (not the illustrative list in the brief's § 2 — two corrections below):
 
-| Backend endpoint | Auth | Frontend hook | Notes |
-|---|---|---|---|
-| `POST /api/v1/auth/register` | Public | `useRegister()` | Body: `{name, email, password}` → `UserResponseDto` (no token — register does not log in) |
-| `POST /api/v1/auth/login` | Public | `useLogin()` | Body: `{email, password}` → `LoginResponseDto {accessToken, tokenType, expiresIn, user}` |
-| `GET /api/v1/auth/me` | Required | `useCurrentUser()` | → `UserResponseDto` |
-| `POST /api/v1/events` | Required | `useCreateEvent()` | → `EventResponseDto` (201) |
-| `GET /api/v1/events` | Public | `useEvents(filters)` | Query: `page, limit, search, from, to` → `PaginatedEventsResponseDto` |
-| `GET /api/v1/events/:id` | Public | `useEvent(id)` | → `EventResponseDto` |
-| `PATCH /api/v1/events/:id` | Required, owner-only | `useUpdateEvent(id)` | 403 if not the event's creator |
-| `DELETE /api/v1/events/:id` | Required, owner-only | `useDeleteEvent(id)` | 204, no body |
-| `POST /api/v1/events/:id/rsvp` | Required | `useRsvp(id)` | → `RsvpResponseDto` (201); 409 full/duplicate/already-started |
-| `DELETE /api/v1/events/:id/rsvp` | Required | `useCancelRsvp(id)` | 204, no body |
-| `GET /api/v1/events/:id/attendees` | **Required** | `useAttendees(id, page)` | Query: `page, limit` → `PaginatedAttendeesResponseDto` |
+| Backend endpoint                   | Auth                 | Frontend hook            | Notes                                                                                     |
+| ---------------------------------- | -------------------- | ------------------------ | ----------------------------------------------------------------------------------------- |
+| `POST /api/v1/auth/register`       | Public               | `useRegister()`          | Body: `{name, email, password}` → `UserResponseDto` (no token — register does not log in) |
+| `POST /api/v1/auth/login`          | Public               | `useLogin()`             | Body: `{email, password}` → `LoginResponseDto {accessToken, tokenType, expiresIn, user}`  |
+| `GET /api/v1/auth/me`              | Required             | `useCurrentUser()`       | → `UserResponseDto`                                                                       |
+| `POST /api/v1/events`              | Required             | `useCreateEvent()`       | → `EventResponseDto` (201)                                                                |
+| `GET /api/v1/events`               | Public               | `useEvents(filters)`     | Query: `page, limit, search, from, to` → `PaginatedEventsResponseDto`                     |
+| `GET /api/v1/events/:id`           | Public               | `useEvent(id)`           | → `EventResponseDto`                                                                      |
+| `PATCH /api/v1/events/:id`         | Required, owner-only | `useUpdateEvent(id)`     | 403 if not the event's creator                                                            |
+| `DELETE /api/v1/events/:id`        | Required, owner-only | `useDeleteEvent(id)`     | 204, no body                                                                              |
+| `POST /api/v1/events/:id/rsvp`     | Required             | `useRsvp(id)`            | → `RsvpResponseDto` (201); 409 full/duplicate/already-started                             |
+| `DELETE /api/v1/events/:id/rsvp`   | Required             | `useCancelRsvp(id)`      | 204, no body                                                                              |
+| `GET /api/v1/events/:id/attendees` | **Required**         | `useAttendees(id, page)` | Query: `page, limit` → `PaginatedAttendeesResponseDto`                                    |
 
 **Corrections vs. the brief's illustrative contract:**
+
 1. `GET /events/:id/attendees` requires a bearer token — confirmed from `rsvp.controller.ts`, where `@Controller('events')` at the `RsvpController` class level carries `@UseGuards(JwtAuthGuard)` with no per-route `@Public()` override on `listAttendees`. (The backend's own Phase-0 doc had once described this route as public; the shipped code is the authority, and it requires auth.) The frontend must not call this endpoint unauthenticated.
 2. Register does not return an access token — a successful `POST /auth/register` returns only the created `UserResponseDto`; the frontend must route a fresh registration to the login form/flow, not treat registration as an implicit login.
 
@@ -336,7 +340,7 @@ Exact scope for the next phase — **foundation only, no feature UI yet**:
 7. `src/types/*` — the domain types from § J, hand-written to match the backend DTOs (not code-generated — the backend surface is small and stable enough that OpenAPI codegen would add a build step for limited benefit at this size; revisit if the contract grows).
 8. `src/components/ui/*` — the design-system primitives from § 25 of the brief (`Button`, `Input`, `Card`, `Spinner`, `Skeleton`, `EmptyState`, `ErrorState`, etc.), styled with Tailwind, no business logic.
 9. `.env.example` with `VITE_API_URL=http://localhost:3000`.
-10. ESLint (`@tanstack/eslint-plugin-query` + standard React/TS config) and a base Vitest + React Testing Library setup (no tests written yet beyond a smoke test that `<App />` renders) — the testing *strategy* is designed here (§ 27/28 of the brief); actual query/mutation/component tests are written alongside the features that introduce them in later phases.
+10. ESLint (`@tanstack/eslint-plugin-query` + standard React/TS config) and a base Vitest + React Testing Library setup (no tests written yet beyond a smoke test that `<App />` renders) — the testing _strategy_ is designed here (§ 27/28 of the brief); actual query/mutation/component tests are written alongside the features that introduce them in later phases.
 11. `frontend/README.md` documenting architecture, state ownership, why TanStack Query over Redux, folder structure, environment variables — mirroring `backend/README.md`'s depth.
 12. Root `README.md` updated: "Frontend: not started" → "Frontend: Phase 1 foundation."
 

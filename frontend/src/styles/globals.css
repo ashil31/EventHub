@@ -1,0 +1,79 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import 'tailwindcss';
+
+/*
+ * Design tokens (Phase 1 § 17): only the values actually needed right now,
+ * not a 50-color palette. Neutral zinc scale + a single indigo accent —
+ * the crisp, high-contrast, dashboard-grade look of Vercel's/Plane's own
+ * dashboards, not a generic Bootstrap-blue placeholder palette. Defined as
+ * plain CSS custom properties on :root (with a prefers-color-scheme
+ * override) and mapped into Tailwind's theme via `@theme inline`, so
+ * `bg-background`/`text-foreground`/etc. utility classes exist and
+ * automatically follow the system color scheme with no JS-driven theme
+ * toggle to build.
+ */
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0.004 286);
+  --muted: oklch(0.552 0.014 286);
+  --primary: oklch(0.546 0.215 264);
+  --primary-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.917 0.004 286);
+  --card: oklch(1 0 0);
+  --ring: oklch(0.546 0.215 264 / 40%);
+  --radius: 0.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: oklch(0.141 0.005 286);
+    --foreground: oklch(0.96 0.002 286);
+    --muted: oklch(0.62 0.012 286);
+    --primary: oklch(0.685 0.169 264);
+    --primary-foreground: oklch(0.141 0.005 286);
+    --destructive: oklch(0.704 0.191 22.216);
+    --destructive-foreground: oklch(0.985 0 0);
+    --border: oklch(0.274 0.006 286);
+    --card: oklch(0.183 0.006 286);
+    --ring: oklch(0.685 0.169 264 / 40%);
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-card: var(--card);
+  --color-ring: var(--ring);
+  --radius-md: var(--radius);
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* Base concerns only — component styling stays in Tailwind utilities
+   (§ 18), not here. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
