@@ -58,6 +58,25 @@ export class EnvironmentVariables {
     { message: 'FRONTEND_URL must be a valid URL' },
   )
   FRONTEND_URL?: string;
+
+  // Rate limiting (Phase 6). Default initializers, matching PORT/NODE_ENV
+  // above — not secrets, just tunables, so a missing env var falls back
+  // to a sensible default rather than failing startup.
+  @IsInt()
+  @Min(1)
+  THROTTLE_TTL: number = 60;
+
+  @IsInt()
+  @Min(1)
+  THROTTLE_LIMIT: number = 100;
+
+  @IsInt()
+  @Min(1)
+  AUTH_THROTTLE_TTL: number = 60;
+
+  @IsInt()
+  @Min(1)
+  AUTH_THROTTLE_LIMIT: number = 5;
 }
 
 const DEV_PLACEHOLDER_SECRET_MARKER = 'replace-this-in-development';

@@ -27,37 +27,46 @@ describe('HealthService', () => {
     service = module.get(HealthService);
   });
 
-  it('reports ok status with safe metadata when the database is reachable', async () => {
-    prismaServiceMock.$queryRaw.mockResolvedValue([{ '?column?': 1 }]);
+  describe('liveness', () => {
+    it('reports ok status with safe metadata and no database check', () => {
+      const result = service.liveness();
 
-    const result = await service.check();
+      expect(result.status).toBe('ok');
+      expect(result.info.name).toBe('eventhub-api');
+      expect(result.info.environment).toBe('test');
+      expect(typeof result.info.uptime).toBe('number');
+      expect(prismaServiceMock.$queryRaw).not.toHaveBeenCalled();
+    });
 
-    expect(result.status).toBe('ok');
-    expect(result.database).toBe('up');
-    expect(result.info.name).toBe('eventhub-api');
-    expect(result.info.environment).toBe('test');
-    expect(typeof result.info.uptime).toBe('number');
+    it('never includes secrets or infrastructure details', () => {
+      const result = service.liveness();
+      const serialized = JSON.stringify(result);
+
+      expect(serialized).not.toMatch(/DATABASE_URL|JWT_SECRET|postgres:\/\//i);
+    });
   });
 
-  it('never includes secrets or infrastructure details', async () => {
-    prismaServiceMock.$queryRaw.mockResolvedValue([{ '?column?': 1 }]);
+  describe('readiness', () => {
+    it('reports database: up when Postgres is reachable', async () => {
+      prismaServiceMock.$queryRaw.mockResolvedValue([{ '?column?': 1 }]);
 
-    const result = await service.check();
-    const serialized = JSON.stringify(result);
+      const result = await service.readiness();
 
-    expect(serialized).not.toMatch(/DATABASE_URL|JWT_SECRET|postgres:\/\//i);
-  });
+      expect(result.status).toBe('ok');
+      expect(result.database).toBe('up');
+    });
 
-  it('throws a safe 503 when the database is unreachable', async () => {
-    prismaServiceMock.$queryRaw.mockRejectedValue(
-      new Error('connection refused to 10.0.0.5:5432 user=postgres'),
-    );
+    it('throws a safe 503 when the database is unreachable', async () => {
+      prismaServiceMock.$queryRaw.mockRejectedValue(
+        new Error('connection refused to 10.0.0.5:5432 user=postgres'),
+      );
 
-    await expect(service.check()).rejects.toBeInstanceOf(
-      ServiceUnavailableException,
-    );
-    await expect(service.check()).rejects.not.toThrow(
-      /10\.0\.0\.5|connection refused/,
-    );
+      await expect(service.readiness()).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+      await expect(service.readiness()).rejects.not.toThrow(
+        /10\.0\.0\.5|connection refused/,
+      );
+    });
   });
 });

@@ -2,14 +2,17 @@ import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../database/prisma.service';
 
-export interface HealthStatus {
+export interface LivenessStatus {
   status: 'ok';
-  database: 'up';
   info: {
     name: string;
     environment: string;
     uptime: number;
   };
+}
+
+export interface ReadinessStatus extends LivenessStatus {
+  database: 'up';
 }
 
 @Injectable()
@@ -20,17 +23,14 @@ export class HealthService {
   ) {}
 
   /**
-   * `SELECT 1` is as cheap as a database check gets — enough to prove the
-   * connection pool can actually reach Postgres, not a real query. Throws a
-   * safe, generic 503 if the database is unreachable; never surfaces the
-   * connection string or the underlying driver error to the client.
+   * Liveness: "is the process alive?" — no dependency checks. A
+   * container orchestrator restarts the process if this fails, so it must
+   * never fail because of something restarting wouldn't fix (like
+   * Postgres being briefly unreachable) — that's what readiness is for.
    */
-  async check(): Promise<HealthStatus> {
-    await this.pingDatabase();
-
+  liveness(): LivenessStatus {
     return {
       status: 'ok',
-      database: 'up',
       info: {
         name: 'eventhub-api',
         environment: this.configService.get<string>(
@@ -39,6 +39,22 @@ export class HealthService {
         ),
         uptime: process.uptime(),
       },
+    };
+  }
+
+  /**
+   * Readiness: "can this instance actually serve requests?" — checks
+   * Postgres with the cheapest possible query (`SELECT 1`, not a real
+   * query) — enough to prove the connection pool can reach the database,
+   * not a load-bearing check. Throws a safe, generic 503 if unreachable;
+   * never surfaces the connection string or the underlying driver error.
+   */
+  async readiness(): Promise<ReadinessStatus> {
+    await this.pingDatabase();
+
+    return {
+      ...this.liveness(),
+      database: 'up',
     };
   }
 

@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import configuration from './config/configuration';
 import { validate } from './config/env.validation';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { PrismaModule } from './database/prisma.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
@@ -47,6 +49,23 @@ import { RsvpModule } from './rsvp/rsvp.module';
         };
       },
     }),
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      // Only the general "default" limit lives here — the stricter
+      // auth-endpoint override is applied per-route in AuthController
+      // (see the comment there for why it can't also go through
+      // ConfigService). Both are env-driven; see .env.example.
+      useFactory: (configService: ConfigService) => ({
+        throttlers: [
+          {
+            name: 'default',
+            ttl: configService.get<number>('throttle.ttl', 60) * 1000,
+            limit: configService.get<number>('throttle.limit', 100),
+          },
+        ],
+      }),
+    }),
     PrismaModule,
     HealthModule,
     UsersModule,
@@ -58,6 +77,10 @@ import { RsvpModule } from './rsvp/rsvp.module';
     {
       provide: APP_FILTER,
       useClass: AllExceptionsFilter,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: AppThrottlerGuard,
     },
   ],
 })

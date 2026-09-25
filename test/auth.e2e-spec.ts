@@ -163,6 +163,19 @@ describe('Auth (e2e)', () => {
       expect(response.status).toBe(400);
     });
 
+    it('rejects an unknown field with 400 (forbidNonWhitelisted)', async () => {
+      const response = await request(httpServer)
+        .post('/api/v1/auth/register')
+        .send({
+          name: 'Unknown Field',
+          email: uniqueEmail('unknown-field'),
+          password: 'a-secure-password',
+          isAdmin: true,
+        });
+
+      expect(response.status).toBe(400);
+    });
+
     it('rejects a missing password with 400', async () => {
       const response = await request(httpServer)
         .post('/api/v1/auth/register')

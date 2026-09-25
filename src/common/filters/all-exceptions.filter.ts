@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
 import { PinoLogger } from 'nestjs-pino';
 import { ErrorResponseBody } from '../types/error-response.type';
+import { errorCodeForStatus } from '../utils/error-code.util';
 
 /**
  * Prisma error codes we know how to map to a sensible HTTP status without
@@ -44,6 +45,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const body: ErrorResponseBody = {
       statusCode: status,
+      code: errorCodeForStatus(status),
       message,
       error,
       timestamp: new Date().toISOString(),
@@ -93,6 +95,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return status === HttpStatus.CONFLICT
         ? { message: 'Resource already exists', error: 'Conflict' }
         : { message: 'Resource not found', error: 'Not Found' };
+    }
+
+    if (status === HttpStatus.TOO_MANY_REQUESTS) {
+      // @nestjs/throttler's default ThrottlerException message is
+      // 'ThrottlerException: Too Many Requests' — technically not
+      // sensitive, but it needlessly exposes the internal exception class
+      // name in a client-facing message. A clean, fixed message here is
+      // more polished and consistent with how every other known error
+      // type in this filter gets a curated message.
+      return {
+        message: 'Too many requests. Please try again later.',
+        error: 'Too Many Requests',
+      };
     }
 
     if (!(exception instanceof HttpException)) {

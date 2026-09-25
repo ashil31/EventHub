@@ -13,10 +13,18 @@ export interface JwtConfig {
   expiresIn: string;
 }
 
+export interface ThrottleConfig {
+  ttl: number;
+  limit: number;
+  authTtl: number;
+  authLimit: number;
+}
+
 export interface EnvironmentConfig {
   app: AppConfig;
   database: DatabaseConfig;
   jwt: JwtConfig;
+  throttle: ThrottleConfig;
 }
 
 /**
@@ -36,5 +44,11 @@ export default (): EnvironmentConfig => ({
   jwt: {
     secret: process.env.JWT_SECRET ?? '',
     expiresIn: process.env.JWT_EXPIRES_IN ?? '',
+  },
+  throttle: {
+    ttl: parseInt(process.env.THROTTLE_TTL ?? '60', 10),
+    limit: parseInt(process.env.THROTTLE_LIMIT ?? '100', 10),
+    authTtl: parseInt(process.env.AUTH_THROTTLE_TTL ?? '60', 10),
+    authLimit: parseInt(process.env.AUTH_THROTTLE_LIMIT ?? '5', 10),
   },
 });

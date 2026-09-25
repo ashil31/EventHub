@@ -356,6 +356,15 @@ describe('RSVP (e2e)', () => {
       expect(response.status).toBe(404);
     });
 
+    it('rejects a limit above the maximum, same pagination convention as Events', async () => {
+      const owner = await createUser('attendees-badlimit-owner');
+      const event = await createEvent(owner.token);
+      const response = await request(httpServer)
+        .get(`/api/v1/events/${event.id}/attendees?limit=1000`)
+        .set('Authorization', `Bearer ${owner.token}`);
+      expect(response.status).toBe(400);
+    });
+
     it('lists attendees ordered by joinedAt ascending, with counts and no passwordHash', async () => {
       const owner = await createUser('attendees-list-owner');
       const event = await createEvent(owner.token, { capacity: 10 });

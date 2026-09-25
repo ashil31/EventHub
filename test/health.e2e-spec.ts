@@ -39,8 +39,24 @@ describe('Health (e2e)', () => {
     await app.close();
   });
 
-  it('GET /api/v1/health returns 200 with a safe status payload', async () => {
+  it('GET /api/v1/health (liveness) returns 200 without checking the database', async () => {
     const response = await request(httpServer).get('/api/v1/health');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      status: 'ok',
+      info: {
+        name: 'eventhub-api',
+        environment: 'test',
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- expect.any() is intentionally untyped
+        uptime: expect.any(Number),
+      },
+    });
+    expect(response.body).not.toHaveProperty('database');
+  });
+
+  it('GET /api/v1/health/ready (readiness) returns 200 with database: up', async () => {
+    const response = await request(httpServer).get('/api/v1/health/ready');
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
@@ -61,6 +77,7 @@ describe('Health (e2e)', () => {
     expect(response.status).toBe(404);
     expect(response.body).toMatchObject({
       statusCode: 404,
+      code: 'NOT_FOUND',
       path: '/api/v1/nonexistent',
     });
     expect(response.body).toHaveProperty('timestamp');

@@ -1,4 +1,8 @@
-import { ArgumentsHost, NotFoundException } from '@nestjs/common';
+import {
+  ArgumentsHost,
+  HttpException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PinoLogger } from 'nestjs-pino';
 import { ErrorResponseBody } from '../types/error-response.type';
@@ -40,6 +44,7 @@ describe('AllExceptionsFilter', () => {
     expect(json).toHaveBeenCalledWith(
       expect.objectContaining({
         statusCode: 404,
+        code: 'NOT_FOUND',
         message: 'Event not found',
         requestId: 'req-1',
       }),
@@ -58,7 +63,11 @@ describe('AllExceptionsFilter', () => {
 
     expect(status).toHaveBeenCalledWith(409);
     const body = json.mock.calls[0][0];
-    expect(body).toMatchObject({ statusCode: 409, error: 'Conflict' });
+    expect(body).toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT',
+      error: 'Conflict',
+    });
     expect(JSON.stringify(body)).not.toMatch(/email|Unique constraint/);
   });
 
@@ -74,8 +83,34 @@ describe('AllExceptionsFilter', () => {
 
     expect(status).toHaveBeenCalledWith(404);
     expect(json).toHaveBeenCalledWith(
-      expect.objectContaining({ statusCode: 404, error: 'Not Found' }),
+      expect.objectContaining({
+        statusCode: 404,
+        code: 'NOT_FOUND',
+        error: 'Not Found',
+      }),
     );
+  });
+
+  it('gives a clean, generic message for a 429 rather than the raw ThrottlerException text', () => {
+    const filter = new AllExceptionsFilter(buildLogger());
+    const { host, json, status } = buildHost();
+    // Mirrors @nestjs/throttler's ThrottlerException shape without adding
+    // a dependency on the package just for this unit test.
+    const throttled = new HttpException(
+      'ThrottlerException: Too Many Requests',
+      429,
+    );
+
+    filter.catch(throttled, host);
+
+    expect(status).toHaveBeenCalledWith(429);
+    const body = json.mock.calls[0][0];
+    expect(body).toMatchObject({
+      statusCode: 429,
+      code: 'TOO_MANY_REQUESTS',
+      message: 'Too many requests. Please try again later.',
+    });
+    expect(JSON.stringify(body)).not.toMatch(/ThrottlerException/);
   });
 
   it('never leaks internal error details for unrecognized exceptions', () => {
@@ -86,6 +121,7 @@ describe('AllExceptionsFilter', () => {
 
     expect(status).toHaveBeenCalledWith(500);
     const body = json.mock.calls[0][0];
+    expect(body).toMatchObject({ code: 'INTERNAL_SERVER_ERROR' });
     expect(JSON.stringify(body)).not.toMatch(/10\.0\.0\.5|refused/);
   });
 });

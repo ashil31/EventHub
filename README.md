@@ -19,13 +19,14 @@ See [`docs/specs/`](docs/specs) for the full architecture, database design, API 
 
 ## Current Status
 
-**Phase 5 complete.** Application foundation (Phase 1) + database layer (Phase 2) + authentication (Phase 3) + Events CRUD (Phase 4) + RSVP with concurrency-safe capacity enforcement (Phase 5):
+**Phase 6 complete.** Application foundation (Phase 1) + database layer (Phase 2) + authentication (Phase 3) + Events CRUD (Phase 4) + RSVP with concurrency-safe capacity enforcement (Phase 5) + API hardening (Phase 6):
 
-- PostgreSQL + Prisma, schema for `User`/`Event`/`EventAttendee`, an applied initial migration, a `PrismaService`/`PrismaModule` database boundary, database-backed health check, and a database integration test suite run against a real Postgres instance.
+- PostgreSQL + Prisma, schema for `User`/`Event`/`EventAttendee`, an applied initial migration, a `PrismaService`/`PrismaModule` database boundary, and a database integration test suite run against a real Postgres instance.
 - Registration, login, JWT issuance/validation, a protected `GET /auth/me`, and Swagger docs with bearer-token auth wired in.
 - Full Events CRUD (create/list/get/update/delete), creator-only update/delete authorization, pagination, search, and date filtering.
 - Join/cancel RSVP and a paginated attendee list, with capacity enforcement and duplicate-RSVP prevention that are correct under real concurrent load — verified with genuinely concurrent requests against real Postgres, not just sequential tests.
-- This is the complete backend feature set the assignment specifies. Remaining phases are hardening (rate limiting, production polish), not new features.
+- Rate limiting (per-user where authenticated, stricter on auth endpoints), split liveness/readiness health checks, a `code` field on every error response, and a completed security/logging/error-handling audit.
+- This is the complete backend feature set the assignment specifies, now hardened for production use. No new business features remain planned.
 
 ## Local Setup
 
@@ -52,6 +53,8 @@ See [`.env.example`](.env.example). All variables below are validated at startup
 | `JWT_SECRET` | yes | ≥32 characters. In production, must not be the `.env.example` placeholder |
 | `JWT_EXPIRES_IN` | yes | e.g. `15m` — signs and verifies access tokens |
 | `FRONTEND_URL` | no | Origin allowed by CORS. If unset in production, CORS denies all cross-origin requests |
+| `THROTTLE_TTL` / `THROTTLE_LIMIT` | no | Default: `60` seconds / `100` requests. General API rate limit. |
+| `AUTH_THROTTLE_TTL` / `AUTH_THROTTLE_LIMIT` | no | Default: `60` seconds / `5` requests. Stricter limit for `/auth/register` and `/auth/login`. |
 
 ## Database
 
@@ -173,15 +176,48 @@ COMMIT
 
 Full design writeup, including the isolation-level reasoning and every concurrency scenario worked through: [`docs/specs/phase-5-rsvp.md`](docs/specs/phase-5-rsvp.md).
 
+**Phase 6 regression check:** none of the above changed in Phase 6. The full concurrency suite (`test/rsvp.e2e-spec.ts`) was re-run after every hardening change (rate limiting, health split, error-response changes) specifically to confirm no regression — still exactly 1/10 successful RSVPs for capacity 1/10, still exactly 1 for both the same-user and cross-user duplicate races, still `attendees <= capacity` under the capacity-update race. Rate limiting in particular could have silently broken these tests (50 concurrent requests hitting a naive IP-based limit) — see Rate Limiting below for how that's avoided.
+
+## Health
+
+Two separate endpoints, separate concerns:
+
+- **`GET /api/v1/health`** — liveness: *is the process alive?* No dependency checks at all — a container orchestrator (Docker/Railway/k8s) restarts the process if this fails, so it must never fail for a reason restarting wouldn't fix (like Postgres being briefly unreachable). Returns `{ status: 'ok', info: { name, environment, uptime } }`.
+- **`GET /api/v1/health/ready`** — readiness: *can this instance actually serve requests?* Pings Postgres with `SELECT 1` (cheapest possible check, not a real query). Returns `{ status: 'ok', database: 'up', info: {...} }`, or `503` if the database is unreachable — orchestrators use this to decide whether to route traffic to this instance, not whether to restart it.
+
+## Rate Limiting
+
+`@nestjs/throttler`, in-memory storage (no Redis — a single-instance concern, not a distributed one at this project's scale).
+
+- **General API:** `THROTTLE_LIMIT` requests per `THROTTLE_TTL` seconds (default 100/60s), tracked **per authenticated user** where a request is authenticated, falling back to per-IP otherwise. Per-user tracking (not just per-IP) matters for a real deployment: users behind a shared NAT/VPN don't share one bucket, and it's what the installed `nestjs-best-practices` skill's own rate-limiting guidance recommends.
+- **Auth endpoints:** `POST /auth/register` and `POST /auth/login` get a stricter override (default 5/60s, `AUTH_THROTTLE_LIMIT`/`AUTH_THROTTLE_TTL`) — always tracked by IP, since there's no authenticated user yet at that point. This is the classic credential-stuffing/registration-spam target.
+- **Exceeding a limit** returns `429 Too Many Requests` in the same error shape as every other error (`code: "TOO_MANY_REQUESTS"`), plus standard `X-RateLimit-*`/`Retry-After` headers.
+- **Rate limiting is not a correctness mechanism.** It does not, and could not, protect RSVP capacity or duplicate-RSVP guarantees — those are enforced by the PostgreSQL transaction/lock/constraint described above, entirely independent of request volume. Throttling exists purely to blunt abusive traffic patterns (credential stuffing, scraping, registration spam).
+- Verified with a dedicated, isolated test suite (`test/throttle/rate-limit.spec.ts`, `npm run test:throttle`) configured with deliberately tiny limits to prove enforcement actually triggers — kept separate from the main e2e suites, whose legitimately high request volume (especially the RSVP concurrency tests) run against generous limits instead, so normal test/CI runs are never mistaken for abuse.
+
+## Security
+
+- **Authentication:** JWT (`@nestjs/jwt` + `@nestjs/passport` + `passport-jwt`), secret from `JWT_SECRET` (validated at startup, never hardcoded, never logged), short-lived access tokens, minimal payload (`sub` only). Every failure mode — missing, malformed, tampered, or expired token — returns an identical generic `401`, never a library-internal error message (see Authentication above).
+- **Password hashing:** Argon2id, OWASP's 2023-recommended minimum configuration. `passwordHash` is never returned in any response and never logged (see below).
+- **Input validation:** global `ValidationPipe` (`whitelist`, `forbidNonWhitelisted`, `transform`) on every request — unknown fields are rejected outright, not silently dropped. Every DTO in the app validates types, formats (UUIDs via `ParseUUIDPipe`, emails, ISO-8601 dates), lengths, and numeric ranges (pagination `limit` capped at 100, `capacity` must be positive, etc.).
+- **Authorization:** ownership (`Event.createdBy`) is checked in the service layer against the JWT-derived `currentUser.id` — never a client-supplied ID. `CreateEventDto` has no `createdBy` field and RSVP's join/cancel routes take no request body at all, so there is nothing for a client to spoof either identity or ownership with.
+- **CORS:** environment-driven via `FRONTEND_URL`, never a wildcard in production — if unset in production, CORS denies all cross-origin requests rather than defaulting open. Development allows a small set of common local frontend ports for convenience.
+- **Security headers:** Helmet, applied globally — verified present on live responses (`Content-Security-Policy`, `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`).
+- **Request body limits:** 100kb on JSON/urlencoded bodies — small enough to bound abuse, generous enough for any legitimate Event/RSVP payload.
+- **Safe error responses:** every error goes through one global filter that never forwards stack traces, SQL, connection strings, or other internal detail — see API Errors below.
+- **Logging redaction:** pino's `redact` config strips `Authorization`/`Cookie` request headers, `Set-Cookie` response headers, and `password`/`passwordHash` request-body fields before anything is ever written to a log line — verified directly by inspecting live structured log output during testing.
+- **User enumeration:** login returns the identical `401 Invalid email or password.` whether the account doesn't exist or the password is wrong — a client cannot distinguish the two from the response.
+
 ## API
 
 Currently implemented:
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| GET | `/api/v1/health` | Public | `{ status, database, info }`. Pings Postgres with `SELECT 1`; returns `503` if unreachable. |
-| POST | `/api/v1/auth/register` | Public | Create an account. `201` + safe user, `409` on duplicate email. |
-| POST | `/api/v1/auth/login` | Public | `200` + `{ accessToken, tokenType, expiresIn, user }`, or `401`. |
+| GET | `/api/v1/health` | Public | Liveness — `{ status, info }`. No dependency checks. |
+| GET | `/api/v1/health/ready` | Public | Readiness — `{ status, database, info }`. `503` if Postgres unreachable. |
+| POST | `/api/v1/auth/register` | Public | Create an account. `201` + safe user, `409` on duplicate email, `429` if rate-limited. |
+| POST | `/api/v1/auth/login` | Public | `200` + `{ accessToken, tokenType, expiresIn, user }`, `401`, or `429` if rate-limited. |
 | GET | `/api/v1/auth/me` | Bearer JWT | `200` + `{ id, name, email }`, or `401`. |
 | POST | `/api/v1/events` | Bearer JWT | Create an event. `201` + `EventResponseDto`, or `400`. |
 | GET | `/api/v1/events` | Public | Paginated, searchable, filterable list. `200`. |
@@ -199,11 +235,14 @@ Global conventions already in place for future endpoints:
 - Global `ValidationPipe` (`whitelist`, `forbidNonWhitelisted`, `transform`)
 - Consistent error shape on every thrown exception (see below), including known Prisma errors (unique-constraint violations → `409`, not-found → `404`) mapped generically without leaking database detail
 
-### Error response shape
+## API Errors
+
+One shape for every error, from every endpoint:
 
 ```json
 {
   "statusCode": 400,
+  "code": "BAD_REQUEST",
   "message": "Validation failed",
   "error": "Bad Request",
   "timestamp": "2026-09-24T12:00:00.000Z",
@@ -212,7 +251,10 @@ Global conventions already in place for future endpoints:
 }
 ```
 
-`requestId` matches the `req.id` pino attaches to each request's structured logs, so a client-reported error can be traced straight to the corresponding log line.
+- **`code`** — a small, stable, machine-readable set derived from the HTTP status (`BAD_REQUEST`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `TOO_MANY_REQUESTS`, `INTERNAL_SERVER_ERROR`, ...) — a client can branch on this without parsing `message`. Deliberately not a large per-business-error taxonomy (`EVENT_FULL`, `DUPLICATE_RSVP`, etc.) — that would be a second classification system to keep in sync with every error a service throws, not worth the upkeep at this project's size; `message` already carries that detail.
+- **`requestId`** matches the `req.id` pino attaches to each request's structured logs, so a client-reported error can be traced straight to the corresponding log line.
+- Known Prisma errors are translated to safe, generic messages (never the raw database error, which can include table/column names and query fragments) — unique-constraint violations → `409`, not-found → `404`.
+- Anything truly unexpected becomes a generic `500` with the message `"Internal server error"` — never a stack trace, SQL statement, or other internal detail. The real error is still logged server-side with the same `requestId`, so it's traceable from logs even though the client never sees it.
 
 ## Development Commands
 
@@ -231,10 +273,11 @@ npm test                # unit tests (no database required)
 npm run test:watch      # unit tests, watch mode
 npm run test:e2e        # end-to-end tests: auth, Events CRUD/authorization, RSVP + concurrency (requires Postgres running)
 npm run test:db         # database integration tests against a real Postgres instance
+npm run test:throttle   # rate-limit enforcement, with deliberately tiny limits (requires Postgres running)
 npm run test:cov        # unit tests with coverage
 ```
 
-`npm test` never needs a database. `npm run test:e2e` and `npm run test:db` do — start Postgres first (`docker compose up -d`).
+`npm test` never needs a database. `npm run test:e2e`, `npm run test:db`, and `npm run test:throttle` do — start Postgres first (`docker compose up -d`).
 
 ## Architecture & Decisions
 
@@ -247,12 +290,13 @@ Full write-ups live in [`docs/specs/`](docs/specs), updated at the end of each p
 - [`docs/specs/phase-3-authentication.md`](docs/specs/phase-3-authentication.md) — what Phase 3 built and why, ADRs 011–013
 - [`docs/specs/phase-4-events.md`](docs/specs/phase-4-events.md) — what Phase 4 built and why, ADRs 014–017
 - [`docs/specs/phase-5-rsvp.md`](docs/specs/phase-5-rsvp.md) — what Phase 5 built and why, ADRs 018–020
+- [`docs/specs/phase-6-hardening.md`](docs/specs/phase-6-hardening.md) — what Phase 6 built and why, ADRs 021–023
 
-## Known Limitations (Phase 5)
+## Known Limitations (Phase 6)
 
-- No rate limiting yet on `/auth/login` / `/auth/register` / RSVP endpoints — flagged as a specific future hardening item (Phase 3, reaffirmed here).
 - No refresh tokens, session revocation, or OAuth/social login — out of scope for this assignment (ADR-004). A deleted user's token stops working immediately (the JWT strategy re-checks the database every request), but there's no way to revoke a *still-valid* user's token before it expires.
+- Rate limiting uses in-memory storage — correct for a single instance; a genuinely multi-instance deployment would need a shared store (out of scope, and explicitly not Redis per this project's stated constraints).
 - Search is a plain case-insensitive `contains` query (no index) — fine at this project's scale; a `pg_trgm` GIN index is the natural next step if search ever becomes a real bottleneck, deliberately not added now.
 - Attendee email is currently visible to any authenticated user who views an event's attendee list (not just the event creator) — a deliberate, documented choice for this assignment's scope (`docs/specs/phase-5-rsvp.md`); a real product would likely want to restrict this further.
-- `npm run test:e2e` and `npm run test:db` require a running local Postgres (`docker compose up -d`); they are not hermetic like `npm test`.
+- `npm run test:e2e`, `npm run test:db`, and `npm run test:throttle` require a running local Postgres (`docker compose up -d`); they are not hermetic like `npm test`.
 - No application Dockerfile yet (Postgres has one via docker-compose; the app's own Dockerfile is deferred — see `docs/specs/phase-1-foundation.md`).

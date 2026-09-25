@@ -10,17 +10,18 @@ Tracks the state of the project phase by phase. Each phase has its own spec file
 | 3 | Authentication & Authorization Foundation | ✅ Complete | [phase-3-authentication.md](phase-3-authentication.md) |
 | 4 | Events Module, CRUD & Authorization | ✅ Complete | [phase-4-events.md](phase-4-events.md) |
 | 5 | RSVP, Attendee Tracking & Concurrency | ✅ Complete | [phase-5-rsvp.md](phase-5-rsvp.md) |
-| 6 | Hardening, deployment prep | ⏳ Not started | — |
+| 6 | API Hardening & Production Readiness | ✅ Complete | [phase-6-hardening.md](phase-6-hardening.md) |
 
 ## What exists right now
 
-- NestJS application foundation (bootstrap, config, validation, security middleware, structured logging, exception handling, health check).
-- PostgreSQL + Prisma: schema for `User`/`Event`/`EventAttendee`, an applied initial migration, `PrismaService`/`PrismaModule` database boundary, database-backed health check, dev-only seed script, database integration tests against a real Postgres instance.
+- NestJS application foundation (bootstrap, config, validation, security middleware, structured logging, exception handling, split liveness/readiness health checks).
+- PostgreSQL + Prisma: schema for `User`/`Event`/`EventAttendee`, an applied initial migration, `PrismaService`/`PrismaModule` database boundary, dev-only seed script, database integration tests against a real Postgres instance.
 - Authentication: registration, login, JWT issuance/validation, protected `GET /auth/me`, `@CurrentUser()`/`AuthenticatedUser` authorization foundation, Swagger docs with bearer auth at `/api/docs`.
-- Events: full CRUD (`POST`/`GET`/`GET :id`/`PATCH`/`DELETE`), creator-only update/delete authorization, pagination, search, date filtering, `attendeeCount`/`availableSpots` on every event response, Swagger-documented.
-- RSVP: join/cancel/attendee-list, concurrency-safe capacity enforcement (PostgreSQL row-level locking) and duplicate-RSVP prevention, verified with genuinely concurrent requests against real Postgres. Capacity updates on existing events are now race-safe against concurrent RSVPs.
-- This is the complete backend feature set the assignment specifies. Phase 6 is hardening, not new functionality.
+- Events: full CRUD (`POST`/`GET`/`GET :id`/`PATCH`/`DELETE`), creator-only update/delete authorization, pagination, search, date filtering, `attendeeCount`/`availableSpots` on every event response.
+- RSVP: join/cancel/attendee-list, concurrency-safe capacity enforcement (PostgreSQL row-level locking) and duplicate-RSVP prevention, verified with genuinely concurrent requests against real Postgres. Capacity updates on existing events are race-safe against concurrent RSVPs.
+- Hardening: rate limiting (`@nestjs/throttler`, per-user tracking, stricter auth-endpoint limit), a `code` field on every error response, and a completed security/logging/error-handling audit.
+- This is the complete backend feature set the assignment specifies, hardened for production use. No further phases are scoped in this project's instructions.
 
-## What's next (Phase 6, not started)
+## What's next
 
-Hardening: rate limiting (`@nestjs/throttler`) on auth and RSVP endpoints, a consistency pass over error handling/logging/request-ID propagation, a full security review across the API surface, and production-readiness review (env validation, graceful shutdown under load, query performance) — as scoped in the Phase 6 preparation note in [phase-5-rsvp.md](phase-5-rsvp.md#22-phase-6-preparation).
+Nothing further was scoped for this assignment. Natural next steps outside this project's instructed phases would be deployment-focused: a production Dockerfile (deferred since Phase 1), CI/CD, and platform-specific configuration — see [phase-6-hardening.md](phase-6-hardening.md#p-phase-7-preparation).
