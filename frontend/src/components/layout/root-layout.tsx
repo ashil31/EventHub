@@ -1,9 +1,20 @@
-import type { ReactNode, SVGProps } from 'react';
+import { useEffect, useState, type ReactNode, type SVGProps } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { useAuth, useLogout } from '../../features/auth/queries/hooks';
 import { cn } from '../../lib/utils/cn';
 import { Button } from '../ui/button';
+import {
+  MobileNav,
+  MobileNavHeader,
+  MobileNavMenu,
+  MobileNavToggle,
+  Navbar,
+  NavBody,
+  NavbarButton,
+  NavbarLogo,
+  NavItems,
+} from '../ui/resizable-navbar';
 
 function IconBase(props: SVGProps<SVGSVGElement>) {
   return (
@@ -98,14 +109,42 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
+const PUBLIC_NAV_ITEMS = [{ name: 'Events', link: '/events' }];
+
+function isEventsLinkActive(pathname: string): boolean {
+  return (
+    pathname === '/events' ||
+    (pathname.startsWith('/events/') &&
+      pathname !== '/events/new' &&
+      !pathname.endsWith('/edit'))
+  );
+}
+
+/** Closes the mobile nav menu on Escape — the menu is a dismissible
+ * dropdown (click-outside already closes it, wired in
+ * `resizable-navbar.tsx`'s own overlay button), not a modal, so this is
+ * the one extra bit of keyboard support it doesn't already get for free. */
+function useCloseOnEscape(isOpen: boolean, onClose: () => void) {
+  useEffect(() => {
+    if (!isOpen) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+}
+
 /**
  * The application shell (Phase 1 § 19, made auth-aware in Phase 3,
- * rebuilt in Phase 8 as a persistent left sidebar for signed-in users —
- * the same shape as Vercel's own dashboard nav — rather than a top bar,
- * once there were enough authenticated-only destinations to justify one).
- * Signed-out visitors still get the original top bar; there's nothing to
- * put in a sidebar for two links (Sign in/Sign up) and it would just be
- * dead space next to public content that isn't a "dashboard."
+ * rebuilt in Phase 8 as a persistent left sidebar for signed-in users on
+ * desktop — the same shape as Vercel's own dashboard nav — since there
+ * were enough authenticated-only destinations to justify one; that part
+ * is unchanged here). Signed-out visitors, and the signed-in mobile
+ * fallback (below `md`, where the sidebar itself is hidden), now use the
+ * "resizable navbar" primitive (`ui/resizable-navbar.tsx`) — a pill-
+ * shaped bar that shrinks and gains a blurred backdrop once the page is
+ * scrolled, with a hamburger-driven dropdown below `lg`/`md` respectively.
  *
  * Reads auth state through `useAuth()`, the same abstraction every other
  * auth-aware component uses — no separate nav-specific auth check.
@@ -115,10 +154,18 @@ export function RootLayout() {
   const logout = useLogout();
   const navigate = useNavigate();
   const location = useLocation();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  useCloseOnEscape(isMobileMenuOpen, () => setIsMobileMenuOpen(false));
+
+  function closeMobileMenu() {
+    setIsMobileMenuOpen(false);
+  }
 
   function handleLogout() {
     logout();
     toast.success('Signed out');
+    closeMobileMenu();
     void navigate('/login', { replace: true });
   }
 
@@ -168,30 +215,52 @@ export function RootLayout() {
 
         {/* Mobile: the sidebar collapses (three links + sign out don't
             earn a slide-out drawer) and the same destinations stay
-            reachable as a compact, wrapping top bar instead. */}
+            reachable through the resizable navbar's hamburger menu. */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 md:hidden">
-            <Link to="/" className="text-lg font-semibold">
-              EventHub
-            </Link>
-            <nav
-              aria-label="Main"
-              className="flex flex-wrap items-center gap-x-4 gap-y-2"
-            >
-              {NAV_ITEMS.map(({ to, label }) => (
-                <Link
-                  key={to}
-                  to={to}
-                  className="text-sm text-muted hover:text-foreground"
+          <Navbar className="md:hidden">
+            <MobileNav className="md:hidden">
+              <MobileNavHeader>
+                <NavbarLogo />
+                <MobileNavToggle
+                  isOpen={isMobileMenuOpen}
+                  onClick={() => setIsMobileMenuOpen((open) => !open)}
+                />
+              </MobileNavHeader>
+              <MobileNavMenu
+                isOpen={isMobileMenuOpen}
+                onClose={closeMobileMenu}
+              >
+                {NAV_ITEMS.map(({ to, label, Icon, isActive }) => {
+                  const active = isActive(location.pathname);
+                  return (
+                    <Link
+                      key={to}
+                      to={to}
+                      onClick={closeMobileMenu}
+                      aria-current={active ? 'page' : undefined}
+                      className={cn(
+                        'flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-sm',
+                        active
+                          ? 'bg-muted/15 font-medium text-foreground'
+                          : 'text-muted hover:text-foreground',
+                      )}
+                    >
+                      <Icon className="size-4 shrink-0" />
+                      {label}
+                    </Link>
+                  );
+                })}
+                <NavbarButton
+                  variant="secondary"
+                  onClick={handleLogout}
+                  className="mt-2 w-full justify-start gap-2.5"
                 >
-                  {label}
-                </Link>
-              ))}
-              <Button variant="secondary" onClick={handleLogout}>
-                Sign out
-              </Button>
-            </nav>
-          </header>
+                  <SignOutIcon className="size-4" />
+                  Sign out
+                </NavbarButton>
+              </MobileNavMenu>
+            </MobileNav>
+          </Navbar>
           <main className="flex-1 px-4 py-6">
             <Outlet />
           </main>
@@ -202,37 +271,74 @@ export function RootLayout() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-background text-foreground">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <Link to="/" className="text-lg font-semibold">
-          EventHub
-        </Link>
+      <Navbar>
+        <NavBody>
+          <NavbarLogo />
+          <NavItems items={PUBLIC_NAV_ITEMS} isActive={isEventsLinkActive} />
+          <div className="flex items-center gap-3">
+            {!isLoading ? (
+              <>
+                <NavbarButton to="/login" variant="secondary">
+                  Sign in
+                </NavbarButton>
+                <NavbarButton to="/register" variant="primary">
+                  Sign up
+                </NavbarButton>
+              </>
+            ) : null}
+          </div>
+        </NavBody>
 
-        <nav
-          aria-label="Main"
-          className="flex flex-wrap items-center gap-x-4 gap-y-2"
-        >
-          <Link
-            to="/events"
-            className="text-sm text-muted hover:text-foreground"
-          >
-            Events
-          </Link>
-          {!isLoading ? (
-            <>
-              <Link
-                to="/login"
-                className="text-sm text-muted hover:text-foreground"
-              >
-                Sign in
-              </Link>
-              <Link to="/register">
-                <Button>Sign up</Button>
-              </Link>
-            </>
-          ) : null}
-        </nav>
-      </header>
-      <main className="flex-1 px-4 py-6">
+        <MobileNav>
+          <MobileNavHeader>
+            <NavbarLogo />
+            <MobileNavToggle
+              isOpen={isMobileMenuOpen}
+              onClick={() => setIsMobileMenuOpen((open) => !open)}
+            />
+          </MobileNavHeader>
+          <MobileNavMenu isOpen={isMobileMenuOpen} onClose={closeMobileMenu}>
+            <Link
+              to="/events"
+              onClick={closeMobileMenu}
+              aria-current={
+                isEventsLinkActive(location.pathname) ? 'page' : undefined
+              }
+              className="w-full rounded-md px-2 py-2 text-sm text-muted hover:text-foreground"
+            >
+              Events
+            </Link>
+            {!isLoading ? (
+              <div className="flex w-full flex-col gap-3">
+                <NavbarButton
+                  to="/login"
+                  variant="secondary"
+                  onClick={closeMobileMenu}
+                  className="w-full"
+                >
+                  Sign in
+                </NavbarButton>
+                <NavbarButton
+                  to="/register"
+                  variant="primary"
+                  onClick={closeMobileMenu}
+                  className="w-full"
+                >
+                  Sign up
+                </NavbarButton>
+              </div>
+            ) : null}
+          </MobileNavMenu>
+        </MobileNav>
+      </Navbar>
+      {/* Same `max-w-6xl` bound as `NavBody` above it, so page content's
+       * left/right edges line up with the navbar's instead of each page
+       * centering its own, differently-sized container independently
+       * (e.g. the home page's narrower box previously started well to
+       * the right of the navbar's logo). A page is still free to center
+       * a narrower box of its own inside this one — that stays nested
+       * and correctly centered either way. */}
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
         <Outlet />
       </main>
     </div>

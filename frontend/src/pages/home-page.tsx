@@ -10,16 +10,18 @@ import { Button } from '../components/ui/button';
  */
 export function HomePage() {
   return (
-    <div className="mx-auto max-w-xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">EventHub</h1>
-        <p className="text-muted mt-1">
-          Discover events, RSVP, and manage the ones you create.
-        </p>
-        <Link to="/events">
-          <Button className="mt-4">Browse events</Button>
-        </Link>
-      </div>
+    // Left-aligned, not its own separately `mx-auto`-centered box — `main`
+    // (in `RootLayout`) already bounds every page to the same `max-w-6xl`
+    // the navbar itself uses, so this stays flush with the navbar's own
+    // left edge instead of re-centering narrower inside that shared box.
+    <div className="max-w-xl">
+      <h1 className="text-2xl font-bold">EventHub</h1>
+      <p className="text-muted mt-1">
+        Discover events, RSVP, and manage the ones you create.
+      </p>
+      <Link to="/events">
+        <Button className="mt-4">Browse events</Button>
+      </Link>
     </div>
   );
 }
