@@ -1,5 +1,14 @@
 # Local development PostgreSQL only. Not used in production — the deployed
 # app connects to a managed Postgres instance via DATABASE_URL.
+#
+# `name` pins the Compose project name explicitly — without it, Compose
+# derives the project name from the enclosing directory (e.g. "backend"
+# now that this file lives in backend/ within the EventHub monorepo),
+# which would silently orphan `docker compose ps`/`down` from containers
+# started before that directory existed. Pinning it keeps `docker compose`
+# commands working the same way regardless of the parent folder's name.
+name: eventhub
+
 services:
   postgres:
     image: postgres:16-alpine

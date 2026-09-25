@@ -17,6 +17,14 @@ env:
   CI_JWT_SECRET: ci-only-secret-not-for-production-use-1234567890
   CI_JWT_EXPIRES_IN: 15m
 
+# Monorepo layout: the NestJS API lives in backend/ (a future frontend/
+# will sit alongside it). Every `run:` step below executes with this as
+# its working directory, so commands stay exactly as they'd be run
+# locally from inside backend/ — no path prefixing needed per step.
+defaults:
+  run:
+    working-directory: backend
+
 jobs:
   # ---------------------------------------------------------------------
   # Build, lint, and the full test suite (unit + e2e + db + throttle),
@@ -47,8 +55,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version-file: backend/.nvmrc
           cache: npm
+          cache-dependency-path: backend/package-lock.json
 
       # Reproducible install from the committed lockfile — never `npm
       # install` in CI. Runs the postinstall `prisma generate` hook too.
@@ -120,8 +129,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version-file: backend/.nvmrc
           cache: npm
+          cache-dependency-path: backend/package-lock.json
 
       - name: Build production image
         run: docker build -t eventhub-api:ci .

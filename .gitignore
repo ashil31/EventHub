@@ -1,25 +1,6 @@
-# compiled output
-/dist
-/node_modules
-/coverage
-# stray root-level compiled artifacts (e.g. from a tsc run against
-# prisma.config.ts/prisma/seed.ts before their tsconfig exclusion existed)
-/prisma.config.js
-/prisma.config.js.map
-/prisma.config.d.ts
-/prisma.config.d.ts.map
-/prisma/*.js
-/prisma/*.js.map
-/prisma/*.d.ts
-
-# logs
-*.log
-npm-debug.log*
-
-# environment
-.env
-.env.local
-.env.*.local
+# Monorepo-wide ignores. Each package (backend/, frontend/) also has its
+# own more specific .gitignore for its own build output, dependencies,
+# and env files.
 
 # OS
 .DS_Store
@@ -29,5 +10,9 @@ npm-debug.log*
 .vscode/*
 !.vscode/extensions.json
 
-# misc
-*.tsbuildinfo
+# Fallback patterns in case a package's own .gitignore is ever missing
+**/node_modules
+**/dist
+**/.env
+**/.env.local
+**/.env.*.local
