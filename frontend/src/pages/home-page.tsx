@@ -2,8 +2,17 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../lib/api/api-client';
 import { Button } from '../components/ui/button';
 
+// Matches backend/src/health/health.service.ts's `LivenessStatus` exactly
+// (verified while inspecting the real contract for Phase 2, not the
+// `{ status: string }` guess this had in Phase 1 — harmless there since
+// `.status` genuinely exists, just an incomplete type).
 interface HealthResponse {
-  status: string;
+  status: 'ok';
+  info: {
+    name: string;
+    environment: string;
+    uptime: number;
+  };
 }
 
 /**

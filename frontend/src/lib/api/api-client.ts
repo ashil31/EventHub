@@ -1,24 +1,11 @@
 import { env } from '../../config/env';
+import { getAuthToken } from './auth-token';
 import { ApiError } from './api-error';
 
 type RequestOptions = Omit<RequestInit, 'body' | 'headers'> & {
   body?: unknown;
   headers?: Record<string, string>;
 };
-
-/**
- * Set by the auth feature once it exists (login/logout). Deliberately just
- * a plain module-level slot, not a React context — `request()` below needs
- * to read it synchronously on every call, outside of React. No feature
- * calls this yet in Phase 1; it exists so the generic client already has
- * the extension point Phase 0 § G designed, instead of that plumbing being
- * bolted on later.
- */
-let authToken: string | null = null;
-
-export function setAuthToken(token: string | null): void {
-  authToken = token;
-}
 
 /**
  * The one function every feature API module calls through. Owns: base URL,
@@ -36,8 +23,9 @@ export async function request<T>(
   if (body !== undefined) {
     requestHeaders['Content-Type'] = 'application/json';
   }
-  if (authToken) {
-    requestHeaders.Authorization = `Bearer ${authToken}`;
+  const token = getAuthToken();
+  if (token) {
+    requestHeaders.Authorization = `Bearer ${token}`;
   }
 
   let response: Response;
