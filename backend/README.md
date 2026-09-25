@@ -398,7 +398,7 @@ The image is a non-root, multi-stage Debian-slim build (not Alpine — Prisma's 
 
 ### Railway Deployment Guide
 
-For a complete, click-by-click walkthrough (including how GitHub Actions fits in, generating `JWT_SECRET`, and troubleshooting), see **[`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md)**. Condensed version:
+For a complete, click-by-click walkthrough (including how GitHub Actions fits in, generating `JWT_SECRET`, and troubleshooting), see **[`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md)**. Railway requires a paid plan once its trial usage credit runs out — if you want to stay on a genuinely free tier instead, see **[`docs/RENDER_DEPLOYMENT_GUIDE.md`](docs/RENDER_DEPLOYMENT_GUIDE.md)** (same Docker-based deploy, no card required, with the free-tier trade-offs — cold starts, database expiry — stated plainly). Condensed Railway version below:
 
 1. Create a new Railway project.
 2. Add a PostgreSQL database to the project (Railway provisions it and exposes `DATABASE_URL` to other services in the project automatically).
