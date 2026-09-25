@@ -2,6 +2,38 @@
 @import 'tailwindcss';
 
 /*
+ * HeroUI (the Starts/Ends date-time picker only) — a granular import,
+ * not the full `@heroui/styles` bundle: just the utilities/variants
+ * prelude its component CSS depends on (per @heroui/styles' own
+ * README), the default theme's variables (needed for tokens like
+ * --accent/--default/--overlay/--field-border these components read),
+ * and only the specific component stylesheets this app actually
+ * renders — the date picker/field/calendar plus the label, field-error,
+ * popover, and button primitives they're built from.
+ *
+ * This theme also declares --background/--foreground/--border/--muted
+ * on :root, the same names our own tokens above use — confirmed by
+ * reading the actual component CSS that none of the components below
+ * reference those four names (they use their own --date-input-group-bg/
+ * --default/--field-border/etc.), so our own :root block later in this
+ * file safely wins the cascade for them with no visible effect on
+ * HeroUI's own rendering.
+ */
+@import 'tw-animate-css';
+@import '@heroui/styles/utilities';
+@import '@heroui/styles/variants';
+@import '@heroui/styles/themes/default' layer(theme);
+@import '@heroui/styles/components/label.css' layer(components);
+@import '@heroui/styles/components/field-error.css' layer(components);
+@import '@heroui/styles/components/button.css' layer(components);
+@import '@heroui/styles/components/popover.css' layer(components);
+@import '@heroui/styles/components/date-input-group.css' layer(components);
+@import '@heroui/styles/components/date-field.css' layer(components);
+@import '@heroui/styles/components/date-picker.css' layer(components);
+@import '@heroui/styles/components/calendar.css' layer(components);
+@import '@heroui/styles/components/calendar-year-picker.css' layer(components);
+
+/*
  * Design tokens (Phase 1 § 17): only the values actually needed right now,
  * not a 50-color palette. Neutral zinc scale + a single indigo accent —
  * the crisp, high-contrast, dashboard-grade look of Vercel's/Plane's own
@@ -48,6 +80,42 @@
    * this close to white by 10% opacity is nearly imperceptible. This is
    * visibly darker than `--secondary` at a glance, in both themes. */
   --secondary-hover: oklch(0.9 0.003 286);
+
+  /* HeroUI's own "accent" — the color its DatePicker/Calendar use for
+   * the selected date and focus states — overridden to match this
+   * app's own --primary rather than HeroUI's default blue, so the new
+   * picker reads as part of this app, not a bolted-on widget. Only the
+   * four accent tokens the components actually in use here consume
+   * (confirmed by reading their CSS) — not the full accent-soft/-hover
+   * family HeroUI defines for components this app doesn't use. */
+  --accent: var(--primary);
+  --accent-foreground: var(--primary-foreground);
+  --accent-hover: color-mix(in oklch, var(--primary), black 10%);
+  --accent-soft-foreground: var(--primary);
+
+  /* The Starts/Ends field itself (`.date-input-group`) — overridden to
+   * match this app's own `Input` component exactly, not HeroUI's
+   * "borderless filled field" default. Confirmed by reading the actual
+   * component CSS: the base rule's background comes from the `bg-field`
+   * utility, which resolves `--color-field` → `--field-background` (a
+   * literal per-theme oklch value, e.g. `oklch(0.2103 0.0059 285.89)` in
+   * dark — not `--date-input-group-bg`, a same-named-looking but
+   * differently-consumed token used elsewhere) — and HeroUI ships
+   * `--field-border-width: 0px`/`--field-border: transparent`
+   * unconditionally, relying on that background-color difference alone
+   * for contrast. In this app's dark theme, `--field-background`'s own
+   * value sat too close to the page's own `--background` to read as a
+   * distinct field, and `--field-radius: calc(var(--radius) * 1.5)`
+   * (12px) didn't match `Input`'s `rounded-md` (8px) in either theme.
+   * Every value below is a `var()` reference to this app's own tokens,
+   * not a literal color, so it resolves to the correct shade in both
+   * themes with no need to repeat it under the dark media query below. */
+  --field-radius: var(--radius);
+  --field-border-width: 1px;
+  --field-border: var(--border);
+  --field-background: var(--background);
+  --field-hover: var(--background);
+  --field-focus: var(--background);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -62,6 +130,10 @@
     --border: oklch(0.274 0.006 286);
     --card: oklch(0.183 0.006 286);
     --ring: oklch(0.685 0.169 264 / 40%);
+    --accent: var(--primary);
+    --accent-foreground: var(--primary-foreground);
+    --accent-hover: color-mix(in oklch, var(--primary), white 10%);
+    --accent-soft-foreground: var(--primary);
   }
 }
 
@@ -119,4 +191,14 @@ dialog {
    isn't guaranteed available in this Tailwind v4 setup. */
 dialog::backdrop {
   background-color: oklch(0 0 0 / 45%);
+}
+
+/* The last remaining mismatch between the Starts/Ends field
+ * (`.date-input-group`) and this app's own `Input` component: HeroUI's
+ * `h-9` (36px) is a hardcoded Tailwind utility in its component CSS, not
+ * a variable — `Input`'s own height (38px, from its padding + line
+ * height) has no equivalent token to override, so it's matched directly
+ * here instead. */
+.date-input-group {
+  height: 2.375rem;
 }

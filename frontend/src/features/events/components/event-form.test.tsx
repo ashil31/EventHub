@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { fillDateTimeField } from '../../../test/fill-date-time-field';
 import type { EventFormValues } from '../schemas/event-schema';
 import { EventForm } from './event-form';
 
@@ -72,10 +73,8 @@ describe('EventForm — create mode', () => {
     const capacityInput = screen.getByLabelText('Capacity');
     await user.clear(capacityInput);
     await user.type(capacityInput, '50');
-    const startsInput = screen.getByLabelText('Starts');
-    await user.type(startsInput, VALID_DEFAULTS.startsAt);
-    const endsInput = screen.getByLabelText('Ends');
-    await user.type(endsInput, VALID_DEFAULTS.endsAt);
+    await fillDateTimeField(user, 'Starts', VALID_DEFAULTS.startsAt);
+    await fillDateTimeField(user, 'Ends', VALID_DEFAULTS.endsAt);
 
     await user.click(screen.getByRole('button', { name: 'Create event' }));
 
@@ -99,8 +98,8 @@ describe('EventForm — create mode', () => {
 
     await user.type(screen.getByLabelText('Title'), 'x');
     await user.type(screen.getByLabelText('Location'), 'x');
-    await user.type(screen.getByLabelText('Starts'), futureLocal(27));
-    await user.type(screen.getByLabelText('Ends'), futureLocal(24));
+    await fillDateTimeField(user, 'Starts', futureLocal(27));
+    await fillDateTimeField(user, 'Ends', futureLocal(24));
     await user.click(screen.getByRole('button', { name: 'Create event' }));
 
     expect(

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { toast } from 'sonner';
 import { describe, expect, it, vi } from 'vitest';
+import { fillDateTimeField } from '../test/fill-date-time-field';
 import { mockFetchJson } from '../test/mock-fetch';
 import { createTestQueryClient } from '../test/test-utils';
 import { CreateEventPage } from './create-event-page';
@@ -42,8 +43,8 @@ async function fillValidForm(user: ReturnType<typeof userEvent.setup>) {
   const capacityInput = screen.getByLabelText('Capacity');
   await user.clear(capacityInput);
   await user.type(capacityInput, '50');
-  await user.type(screen.getByLabelText('Starts'), futureLocal(24));
-  await user.type(screen.getByLabelText('Ends'), futureLocal(27));
+  await fillDateTimeField(user, 'Starts', futureLocal(24));
+  await fillDateTimeField(user, 'Ends', futureLocal(27));
 }
 
 describe('CreateEventPage', () => {

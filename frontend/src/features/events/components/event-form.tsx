@@ -1,6 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { Button } from '../../../components/ui/button';
+import { DateTimeField } from '../../../components/ui/date-time-field';
 import { Field } from '../../../components/ui/field';
 import { TextareaField } from '../../../components/ui/textarea-field';
 import type { EventFormDirtyFields } from '../lib/event-form-transform';
@@ -56,6 +57,7 @@ export function EventForm({
   const schema = mode === 'create' ? createEventSchema : editEventSchema;
   const {
     register,
+    control,
     handleSubmit,
     formState: { errors, dirtyFields, isDirty },
   } = useForm<EventFormValues>({
@@ -122,17 +124,27 @@ export function EventForm({
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field
-          label="Starts"
-          type="datetime-local"
-          error={errors.startsAt?.message}
-          {...register('startsAt')}
+        <Controller
+          name="startsAt"
+          control={control}
+          render={({ field }) => (
+            <DateTimeField
+              label="Starts"
+              error={errors.startsAt?.message}
+              {...field}
+            />
+          )}
         />
-        <Field
-          label="Ends"
-          type="datetime-local"
-          error={errors.endsAt?.message}
-          {...register('endsAt')}
+        <Controller
+          name="endsAt"
+          control={control}
+          render={({ field }) => (
+            <DateTimeField
+              label="Ends"
+              error={errors.endsAt?.message}
+              {...field}
+            />
+          )}
         />
       </div>
 
