@@ -13,6 +13,14 @@
  * toggle to build.
  */
 :root {
+  /* Without this, native form controls — the datetime-local calendar
+   * icon chief among them — assume light mode regardless of which theme
+   * this page's own CSS variables are actually rendering, so the icon
+   * itself stays near-black-on-near-black once the dark media query
+   * below takes over the rest of the page. `light dark` tells the
+   * browser both are supported and to pick per the same OS preference
+   * the media query already reacts to, not a hardcoded value. */
+  color-scheme: light dark;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0.004 286);
   --muted: oklch(0.552 0.014 286);
