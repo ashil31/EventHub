@@ -1,0 +1,203 @@
+name: CI
+
+# Runs on every PR and every push to main — the two points where broken
+# code could either merge or reach the branch Railway deploys from.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# All credentials below are ephemeral, CI-local, and thrown away when the
+# job ends — never production values. Nothing in this workflow echoes an
+# environment variable or enables shell tracing (`set -x`), so secrets (if
+# any were ever added) wouldn't be able to leak into the log even by
+# accident.
+env:
+  CI_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/eventhub
+  CI_JWT_SECRET: ci-only-secret-not-for-production-use-1234567890
+  CI_JWT_EXPIRES_IN: 15m
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Build, lint, and the full test suite (unit + e2e + db + throttle),
+  # against a real, freshly migrated PostgreSQL — a GitHub Actions service
+  # container, not a mock and not a developer's local database.
+  # ---------------------------------------------------------------------
+  test:
+    name: Lint, build & test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: eventhub
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d eventhub"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # Reproducible install from the committed lockfile — never `npm
+      # install` in CI. Runs the postinstall `prisma generate` hook too.
+      - name: Install dependencies
+        run: npm ci
+
+      # Proves the migrations apply cleanly from a completely fresh
+      # database — not just that they applied once, historically, on
+      # someone's machine. `migrate deploy`, never `db push`.
+      - name: Apply database migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      # `nest build` is also the typecheck: this repository has no
+      # separate `tsc --noEmit` script, and adding one would just
+      # duplicate what a successful build already proves.
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+      # Includes the Phase 5 concurrency suite (capacity=1/10, same-user,
+      # two-user-race, capacity-update-race) — run against this real
+      # Postgres service container, asserting actual row counts, not just
+      # HTTP status codes. No timeout was loosened to make this pass; if
+      # it's ever flaky here, that's a real bug to diagnose, not a CI
+      # hardware problem to paper over.
+      - name: E2E tests (incl. RSVP concurrency)
+        run: npm run test:e2e
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+          JWT_SECRET: ${{ env.CI_JWT_SECRET }}
+          JWT_EXPIRES_IN: ${{ env.CI_JWT_EXPIRES_IN }}
+
+      - name: Database integration tests
+        run: npm run test:db
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+          JWT_SECRET: ${{ env.CI_JWT_SECRET }}
+          JWT_EXPIRES_IN: ${{ env.CI_JWT_EXPIRES_IN }}
+
+      - name: Rate-limit enforcement tests
+        run: npm run test:throttle
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+          JWT_SECRET: ${{ env.CI_JWT_SECRET }}
+          JWT_EXPIRES_IN: ${{ env.CI_JWT_EXPIRES_IN }}
+
+  # ---------------------------------------------------------------------
+  # Proves the production Dockerfile actually builds and the resulting
+  # image actually runs: migrate, boot, pass liveness + readiness, serve
+  # a real request, shut down cleanly on SIGTERM. This is the same
+  # multi-stage Dockerfile Railway builds from — nothing pushed anywhere,
+  # purely a local build-and-run smoke test.
+  # ---------------------------------------------------------------------
+  docker:
+    name: Docker build & smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Build production image
+        run: docker build -t eventhub-api:ci .
+
+      # Published to the host too (not just the eventhub-ci network) so the
+      # next step can run `prisma migrate deploy` from the runner itself.
+      - name: Start PostgreSQL
+        run: |
+          docker network create eventhub-ci
+          docker run -d --name postgres --network eventhub-ci -p 5432:5432 \
+            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=eventhub \
+            postgres:16-alpine
+          for i in $(seq 1 30); do
+            docker exec postgres pg_isready -U postgres -d eventhub && break
+            sleep 1
+          done
+
+      # Migrations run from the runner's own toolchain (the `prisma`
+      # devDependency), not from inside the production image — see the
+      # README's "Database Migration Strategy" section for why the
+      # runtime image deliberately doesn't contain the Prisma CLI.
+      - name: Apply migrations
+        run: |
+          npm ci
+          npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+
+      - name: Run the built image
+        run: |
+          docker run -d --name eventhub-api --network eventhub-ci -p 3000:3000 \
+            -e NODE_ENV=production \
+            -e PORT=3000 \
+            -e DATABASE_URL="postgresql://postgres:postgres@postgres:5432/eventhub" \
+            -e JWT_SECRET="${{ env.CI_JWT_SECRET }}" \
+            -e JWT_EXPIRES_IN="${{ env.CI_JWT_EXPIRES_IN }}" \
+            eventhub-api:ci
+
+      - name: Wait for readiness
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/v1/health/ready || true)
+            [ "$code" = "200" ] && exit 0
+            sleep 1
+          done
+          echo "Container never became ready" >&2
+          docker logs eventhub-api
+          exit 1
+
+      - name: Smoke test the running container
+        run: |
+          set -e
+          BASE=http://localhost:3000/api/v1
+
+          curl -sf "$BASE/health" > /dev/null
+          curl -sf -o /dev/null -w '%{http_code}' http://localhost:3000/api/docs | grep -q 200
+
+          curl -sf -X POST "$BASE/auth/register" -H 'Content-Type: application/json' \
+            -d '{"name":"CI Smoke","email":"ci-smoke@example.com","password":"CiSmokeTest123!"}' > /dev/null
+
+          LOGIN_RESPONSE=$(curl -sf -X POST "$BASE/auth/login" -H 'Content-Type: application/json' \
+            -d '{"email":"ci-smoke@example.com","password":"CiSmokeTest123!"}')
+          TOKEN=$(node -e "console.log(JSON.parse(process.argv[1]).accessToken)" "$LOGIN_RESPONSE")
+
+          curl -sf -X POST "$BASE/events" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            -d '{"title":"CI Smoke Event","location":"GitHub Actions","startsAt":"2027-01-01T10:00:00.000Z","endsAt":"2027-01-01T12:00:00.000Z","capacity":5}' > /dev/null
+
+      - name: Graceful shutdown check
+        run: |
+          docker stop -t 10 eventhub-api
+          exit_code=$(docker inspect eventhub-api --format '{{.State.ExitCode}}')
+          docker logs eventhub-api | tail -5
+          [ "$exit_code" = "0" ]
+
+      - name: Teardown
+        if: always()
+        run: |
+          docker rm -f eventhub-api postgres 2>/dev/null || true
+          docker network rm eventhub-ci 2>/dev/null || true

@@ -46,6 +46,11 @@ export class PrismaService
   }
 
   async onModuleDestroy(): Promise<void> {
+    // Runs as part of Nest's shutdown-hook lifecycle (enabled in main.ts),
+    // triggered by SIGTERM/SIGINT — closes the pg Pool cleanly so a
+    // container stop/redeploy doesn't leave dangling connections on the
+    // database side.
     await this.$disconnect();
+    this.logger.log('Disconnected from PostgreSQL');
   }
 }

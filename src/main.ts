@@ -50,8 +50,11 @@ async function bootstrap(): Promise<void> {
 
   app.enableShutdownHooks();
 
+  // Explicit host bind: containers (Docker/Railway) route traffic to the
+  // container's network interface, not just loopback, so the app must
+  // listen on all interfaces rather than relying on Node's default.
   const port = configService.get<number>('app.port', 3000);
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
 }
 
 function buildCorsOptions(configService: ConfigService): {
