@@ -1,4 +1,6 @@
 import { render, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { MemoryRouter } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import type { Event } from '../../../types/event';
 import { EventCard } from './event-card';
@@ -18,9 +20,15 @@ const BASE_EVENT: Event = {
   updatedAt: '2026-09-24T12:00:00.000Z',
 };
 
+// EventCard's title is a react-router Link (§ 21), so every render needs
+// a Router context.
+function renderCard(ui: ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
+
 describe('EventCard', () => {
   it('renders the title, location, description, and attendee count', () => {
-    render(<EventCard event={BASE_EVENT} />);
+    renderCard(<EventCard event={BASE_EVENT} />);
     expect(
       screen.getByRole('heading', { name: 'Backend Engineering Meetup' }),
     ).toBeInTheDocument();
@@ -31,26 +39,33 @@ describe('EventCard', () => {
     expect(screen.getByText('40 / 100 attending')).toBeInTheDocument();
   });
 
+  it('links the title to the event detail route', () => {
+    renderCard(<EventCard event={BASE_EVENT} />);
+    expect(
+      screen.getByRole('link', { name: 'Backend Engineering Meetup' }),
+    ).toHaveAttribute('href', '/events/e1');
+  });
+
   it('shows spots remaining when the event is not full', () => {
-    render(<EventCard event={BASE_EVENT} />);
+    renderCard(<EventCard event={BASE_EVENT} />);
     expect(screen.getByText('60 spots left')).toBeInTheDocument();
   });
 
   it('shows "Full" when there are no available spots', () => {
-    render(<EventCard event={{ ...BASE_EVENT, availableSpots: 0 }} />);
+    renderCard(<EventCard event={{ ...BASE_EVENT, availableSpots: 0 }} />);
     expect(screen.getByText('Full')).toBeInTheDocument();
     expect(screen.queryByText(/spots left/)).not.toBeInTheDocument();
   });
 
   it('omits the description paragraph when null', () => {
-    render(<EventCard event={{ ...BASE_EVENT, description: null }} />);
+    renderCard(<EventCard event={{ ...BASE_EVENT, description: null }} />);
     expect(
       screen.queryByText('A meetup for backend engineers.'),
     ).not.toBeInTheDocument();
   });
 
   it('uses singular "spot" for exactly one remaining', () => {
-    render(<EventCard event={{ ...BASE_EVENT, availableSpots: 1 }} />);
+    renderCard(<EventCard event={{ ...BASE_EVENT, availableSpots: 1 }} />);
     expect(screen.getByText('1 spot left')).toBeInTheDocument();
   });
 });

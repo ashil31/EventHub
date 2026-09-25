@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { cn } from '../../../lib/utils/cn';
 import type { Event } from '../../../types/event';
 import { formatEventDateRange } from '../lib/format-event-date';
@@ -10,18 +11,29 @@ interface EventCardProps {
  * Purely presentational (§ 23/§ 12) — receives the full `Event` it
  * already has from the list response rather than taking an id and
  * issuing its own query, which would turn a single list fetch into an
- * N+1 request pattern. Only renders fields the API actually returns; no
- * detail-page link yet since `/events/:id` doesn't exist in the router
- * (§ 3 — not created merely to give this card somewhere to point).
+ * N+1 request pattern. Only renders fields the API actually returns.
+ *
+ * Now that `/events/:eventId` exists (Phase 5 § 21), the title is a real
+ * `Link` to it, stretched across the whole card via `after:absolute
+ * after:inset-0` (the standard "stretched link" pattern) so the entire
+ * card is clickable without wrapping non-interactive content in an
+ * anchor — the link's accessible name stays just the event title
+ * instead of the whole card's text, and there's exactly one interactive
+ * element here, so there's no nested-interactive-element concern.
  */
 export function EventCard({ event }: EventCardProps) {
   const isFull = event.availableSpots <= 0;
 
   return (
-    <article className="flex h-full flex-col rounded-xl border border-border bg-card p-5 shadow-sm">
+    <article className="relative flex h-full flex-col rounded-xl border border-border bg-card p-5 shadow-sm transition-colors hover:border-primary/40">
       <div className="flex items-start justify-between gap-3">
         <h3 className="text-base font-semibold text-foreground">
-          {event.title}
+          <Link
+            to={`/events/${event.id}`}
+            className="after:absolute after:inset-0 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
+            {event.title}
+          </Link>
         </h3>
         <span
           className={cn(

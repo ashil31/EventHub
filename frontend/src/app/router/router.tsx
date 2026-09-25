@@ -30,6 +30,11 @@ const DashboardPage = lazy(() =>
 const EventsPage = lazy(() =>
   import('../../pages/events-page').then((m) => ({ default: m.EventsPage })),
 );
+const EventDetailPage = lazy(() =>
+  import('../../pages/event-detail-page').then((m) => ({
+    default: m.EventDetailPage,
+  })),
+);
 const NotFoundPage = lazy(() =>
   import('../../pages/not-found-page').then((m) => ({
     default: m.NotFoundPage,
@@ -45,7 +50,8 @@ const NotFoundPage = lazy(() =>
  * introduces, purely to prove the boundary works; real protected pages
  * (event management) arrive in a later phase. `/events` (Phase 4) sits
  * alongside the other public routes — browsing events requires no
- * session, matching the backend's own `GET /events` (no guard).
+ * session, matching the backend's own `GET /events` (no guard). Same for
+ * `/events/:eventId` (Phase 5) — `GET /events/:id` has no guard either.
  */
 export const router = createBrowserRouter([
   {
@@ -54,6 +60,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <HomePage /> },
       { path: 'events', element: <EventsPage /> },
+      { path: 'events/:eventId', element: <EventDetailPage /> },
       {
         element: <RedirectIfAuthenticated />,
         children: [
