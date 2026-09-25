@@ -52,10 +52,11 @@ const NotFoundPage = lazy(() =>
 );
 
 /**
- * The single centralized route table (§ 8/§ 32). Public routes (`/`,
- * `/login`, `/register`) sit directly under `RootLayout`; `/login` and
- * `/register` are additionally wrapped in `RedirectIfAuthenticated` so an
- * already-signed-in visitor doesn't see them (§ 25). `/dashboard` is
+ * The single centralized route table (§ 8/§ 32). `/`, `/login`, and
+ * `/register` are all wrapped in `RedirectIfAuthenticated` (§ 25) — an
+ * already-signed-in visitor gets sent to `getRedirectPath`'s default
+ * (`/dashboard`) instead of the public marketing homepage, the same way
+ * they'd never see the login/register forms again either. `/dashboard` is
  * wrapped in `RequireAuth` (§ 22) — the one protected route this phase
  * introduces, purely to prove the boundary works; real protected pages
  * (event management) arrive in a later phase. `/events` (Phase 4) sits
@@ -74,12 +75,12 @@ export const router = createBrowserRouter([
     path: '/',
     element: <RootLayout />,
     children: [
-      { index: true, element: <HomePage /> },
       { path: 'events', element: <EventsPage /> },
       { path: 'events/:eventId', element: <EventDetailPage /> },
       {
         element: <RedirectIfAuthenticated />,
         children: [
+          { index: true, element: <HomePage /> },
           { path: 'login', element: <LoginPage /> },
           { path: 'register', element: <RegisterPage /> },
         ],
