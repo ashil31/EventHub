@@ -9,6 +9,10 @@ EventHub/
 └── .github/    CI (runs against backend/)
 ```
 
+## System Design
+
+![EventHub system design](docs/images/system-design.png)
+
 ## Backend
 
 The backend is complete: authentication, event CRUD with ownership authorization, RSVP with concurrency-safe capacity enforcement, rate limiting, health checks, structured logging, a production Docker image, CI, and a documented Render deployment path.
