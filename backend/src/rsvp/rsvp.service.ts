@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -142,13 +143,27 @@ export class RsvpService {
     }
   }
 
+  /**
+   * Attendee identities (name/email/join order) are private to the event's
+   * organizer, not public like the event listing itself — only the
+   * creator may call this. 403, not 404, for a non-owner: the event is
+   * already publicly readable (GET /events/:id has no auth requirement),
+   * so there's nothing to conceal by pretending it doesn't exist. Same
+   * reasoning EventsService.assertOwner uses for edit/delete.
+   */
   async listAttendees(
     eventId: string,
     query: ListAttendeesDto,
+    currentUser: AuthenticatedUser,
   ): Promise<PaginatedAttendeesResponseDto> {
     const event = await this.eventsRepository.findById(eventId);
     if (!event) {
       throw new NotFoundException('Event not found');
+    }
+    if (event.createdBy !== currentUser.id) {
+      throw new ForbiddenException(
+        'Only the event creator can view attendees.',
+      );
     }
 
     const skip = (query.page - 1) * query.limit;

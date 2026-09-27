@@ -7,6 +7,7 @@ import { EventDetailNotFound } from '../features/events/components/event-detail-
 import { EventDetailSkeleton } from '../features/events/components/event-detail-skeleton';
 import { isMissingEvent } from '../features/events/lib/is-missing-event';
 import { useEvent } from '../features/events/queries/hooks';
+import { EventAttendeesList } from '../features/rsvp/components/event-attendees-list';
 import { EventRsvpPanel } from '../features/rsvp/components/event-rsvp-panel';
 
 /**
@@ -57,6 +58,7 @@ export function EventDetailPage() {
             </p>
           )}
           <EventRsvpPanel eventId={query.data.id} />
+          <EventAttendeesList event={query.data} />
         </div>
       )}
     </div>

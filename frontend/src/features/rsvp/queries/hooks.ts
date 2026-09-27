@@ -5,11 +5,23 @@ import { rsvpApi, type AttendeesPagination } from '../api/rsvp-api';
 import { attendeeKeys, rsvpKeys } from './keys';
 import { attendeesQueries, rsvpQueries } from './options';
 
+/**
+ * `enabled` defaults to `true` (unchanged default behavior) but callers
+ * that know ahead of time the request would just be rejected — e.g.
+ * `EventAttendeesList` for a non-owner, since the backend restricts this
+ * endpoint to the event's creator — can pass `enabled: false` to skip
+ * firing it at all, the same "gate lives in the hook, not the shared
+ * options object" split `useRsvpStatus` already uses below.
+ */
 export function useEventAttendees(
   eventId: string,
   pagination: AttendeesPagination = {},
+  { enabled = true }: { enabled?: boolean } = {},
 ) {
-  return useQuery(attendeesQueries.list(eventId, pagination));
+  return useQuery({
+    ...attendeesQueries.list(eventId, pagination),
+    enabled: Boolean(eventId) && enabled,
+  });
 }
 
 /**

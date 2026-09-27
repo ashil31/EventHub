@@ -90,7 +90,9 @@ export class RsvpController {
   }
 
   @Get(':id/attendees')
-  @ApiOperation({ summary: "List an event's attendees, earliest RSVP first" })
+  @ApiOperation({
+    summary: "List an event's attendees, earliest RSVP first (creator only)",
+  })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiResponse({ status: 200, type: PaginatedAttendeesResponseDto })
   @ApiResponse({
@@ -98,11 +100,16 @@ export class RsvpController {
     description: 'Invalid event id or query parameters',
   })
   @ApiResponse({ status: 401, description: 'Missing or invalid access token' })
+  @ApiResponse({
+    status: 403,
+    description: 'Only the event creator can view attendees',
+  })
   @ApiResponse({ status: 404, description: 'Event not found' })
   listAttendees(
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: ListAttendeesDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
   ): Promise<PaginatedAttendeesResponseDto> {
-    return this.rsvpService.listAttendees(id, query);
+    return this.rsvpService.listAttendees(id, query, currentUser);
   }
 }

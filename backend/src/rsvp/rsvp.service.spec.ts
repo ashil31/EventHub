@@ -1,6 +1,10 @@
 /* eslint-disable @typescript-eslint/unbound-method -- Jest mock assertions
    (expect(mock.fn).toHaveBeenCalledWith(...)) are not real method references */
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventAttendee, Prisma } from '@prisma/client';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 import { PrismaService } from '../database/prisma.service';
@@ -216,12 +220,25 @@ describe('RsvpService', () => {
       eventsRepository.findById.mockResolvedValue(null);
 
       await expect(
-        service.listAttendees('missing', { page: 1, limit: 20 }),
+        service.listAttendees('missing', { page: 1, limit: 20 }, currentUser),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
-    it('returns paginated attendees with metadata', async () => {
-      eventsRepository.findById.mockResolvedValue({} as never);
+    it("throws 403 for a caller who isn't the event's creator", async () => {
+      eventsRepository.findById.mockResolvedValue({
+        createdBy: 'owner-1',
+      } as never);
+
+      await expect(
+        service.listAttendees('event-1', { page: 1, limit: 20 }, currentUser),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(rsvpRepository.listAttendees).not.toHaveBeenCalled();
+    });
+
+    it('returns paginated attendees with metadata for the event creator', async () => {
+      eventsRepository.findById.mockResolvedValue({
+        createdBy: currentUser.id,
+      } as never);
       rsvpRepository.listAttendees.mockResolvedValue([
         {
           ...buildAttendee(),
@@ -230,10 +247,11 @@ describe('RsvpService', () => {
       ]);
       eventsRepository.countAttendees.mockResolvedValue(41);
 
-      const result = await service.listAttendees('event-1', {
-        page: 2,
-        limit: 20,
-      });
+      const result = await service.listAttendees(
+        'event-1',
+        { page: 2, limit: 20 },
+        currentUser,
+      );
 
       expect(result.meta).toEqual({
         page: 2,

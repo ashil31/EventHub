@@ -451,10 +451,9 @@ describe('RSVP (e2e)', () => {
         .post(`/api/v1/events/${event.id}/rsvp`)
         .set('Authorization', `Bearer ${second.token}`);
 
-      const requester = await createUser('attendees-list-requester');
       const response = await request(httpServer)
         .get(`/api/v1/events/${event.id}/attendees`)
-        .set('Authorization', `Bearer ${requester.token}`);
+        .set('Authorization', `Bearer ${owner.token}`);
 
       expect(response.status).toBe(200);
       const body = response.body as AttendeesResponseBody;
@@ -464,6 +463,22 @@ describe('RSVP (e2e)', () => {
         second.userId,
       ]);
       expect(JSON.stringify(body)).not.toMatch(/passwordHash/);
+    });
+
+    it('forbids a non-creator from listing attendees, even one who is attending', async () => {
+      const owner = await createUser('attendees-forbid-owner');
+      const event = await createEvent(owner.token, { capacity: 10 });
+      const attendee = await createUser('attendees-forbid-attendee');
+
+      await request(httpServer)
+        .post(`/api/v1/events/${event.id}/rsvp`)
+        .set('Authorization', `Bearer ${attendee.token}`);
+
+      const response = await request(httpServer)
+        .get(`/api/v1/events/${event.id}/attendees`)
+        .set('Authorization', `Bearer ${attendee.token}`);
+
+      expect(response.status).toBe(403);
     });
 
     it('paginates attendees using database-level skip/take', async () => {
